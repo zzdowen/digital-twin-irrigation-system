@@ -25,7 +25,7 @@
                       │ MQTT 协议
 ┌─────────────────────▼───────────────────────────┐
 │            数据层 (ESP32 + 传感器)                │
-│  土壤湿度 · 温湿度 · 水泵/电磁阀控制               │
+│  3路土壤湿度 · 3路水泵继电器控制                   │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -45,17 +45,18 @@
 ```
 digital-twin-irrigation-system/
 ├── backend/              # Python 后端
-│   └── irrigation_server.py  # Flask 数据服务 (v2.0.0，已部署)
+│   └── irrigation_server.py  # Flask 数据服务 (v3.0.0，3路，已部署)
 ├── hardware/             # 硬件相关
-│   └── esp32/            # ESP32 固件代码
+│   ├── esp32/            # ESP32 固件（3路采集+3路水泵控制+MQTT）
+│   └── 硬件物料清单与接线手册.md
 ├── frontend-unity/       # Unity 3D 前端
-│   └── Assets/Scripts/   # Unity C# 脚本
+│   ├── Assets/Scripts/   # Unity C# 脚本（6 个）
+│   └── Unity场景设计文档.md  # 建模需求（3D 模型待绘制）
 ├── docs/                 # 项目文档
-│   ├── 竞赛规程.pdf       # 2026年竞赛规程
+│   ├── 系统接口契约v3.md  # MQTT + HTTP API 契约基准
 │   ├── Unity数据接口规范.md
-│   ├── Unity场景设计需求文档.md
-│   ├── 部署说明文档.md
-│   └── 文献检索提示词*.txt
+│   ├── 竞赛规程.pdf
+│   └── 部署说明文档.md（内部，不入库）
 ├── presentations/        # 演示材料
 ├── tests/                # 测试用例
 └── README.md
@@ -63,17 +64,17 @@ digital-twin-irrigation-system/
 
 ## 🔌 API 接口 (已部署)
 
-数据服务器 (v2.0.0) 已部署至云服务器，接口如下：
+数据服务器 (v3.0.0) 已部署至云服务器，3 路独立灌溉，接口如下：
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/realtime-data` | GET | 实时环境数据（含 data_source 字段） |
-| `/api/historical-data?hours=24` | GET | 历史数据 |
-| `/api/prediction?minutes=30` | GET | 湿度预测 |
-| `/api/control-pump` | POST | 水泵控制 |
+| `/api/realtime-data` | GET | 3 路实时数据（channels 数组 + 平均值） |
+| `/api/historical-data?hours=24` | GET | 3 路历史数据 |
+| `/api/prediction?minutes=30` | GET | 3 路湿度预测（线性回归趋势） |
+| `/api/control-pump` | POST | 水泵控制（channel 1-3 / all） |
 | `/api/system-status` | GET | 系统状态 |
 
-数据源支持三种模式（环境变量 `DATA_SOURCE` 控制）：`auto`（默认，自动切换）/ `simulated` / `mqtt`，真实传感器接入后可平滑切换。
+数据源支持三种模式（环境变量 `DATA_SOURCE` 控制）：`auto`（默认，自动切换）/ `simulated` / `mqtt`，ESP32 真实传感器接入后自动切换，断线 30 秒自动回退模拟。
 
 ## 👥 团队分工
 
@@ -92,22 +93,27 @@ python irrigation_server.py
 ### 测试 API
 
 ```bash
-# 实时数据
+# 实时数据（3 路）
 curl http://localhost:5000/api/realtime-data
 
-# 预测数据
+# 预测数据（3 路）
 curl http://localhost:5000/api/prediction?minutes=30
+
+# 控制花盆2 灌溉 5 分钟
+curl -X POST http://localhost:5000/api/control-pump \
+  -H "Content-Type: application/json" \
+  -d '{"channel": 2, "action": "start", "duration_minutes": 5}'
 ```
 
 ## 📅 开发进度
 
 - [x] 云服务器部署 (见内部部署文档)
-- [x] 数据服务 v2.0.0 上线（数据源抽象层 + MQTT 自动切换）
-- [x] Unity 数据对接脚本（5 个 C# 脚本）
-- [ ] ESP32 硬件开发
-- [ ] Python 后端预测模型（机器学习）
-- [ ] Unity 3D 可视化场景
-- [ ] 系统集成测试
+- [x] 数据服务 v3.0.0 上线（3 路独立灌溉 + MQTT 自动切换 + 预测）
+- [x] ESP32 固件（3 路采集 + 3 路水泵控制 + MQTT，待硬件烧录联调）
+- [x] Unity 数据对接脚本（6 个 C# 脚本）
+- [x] Unity 场景设计文档（3D 模型待绘制）
+- [ ] Unity 3D 场景建模与联调
+- [ ] 系统集成测试（硬件联调）
 - [ ] 初赛文档准备
 
 ## 📄 License

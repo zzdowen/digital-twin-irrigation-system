@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Text;
 using UnityEngine;
@@ -120,11 +120,12 @@ public class IrrigationApiClient : MonoBehaviour
     }
 
     /// <summary>
-    /// 控制水泵（POST /api/control-pump）。
+    /// 控制水泵（POST /api/control-pump，v3.0.0 三路）。
     /// </summary>
     /// <param name="action">动作："start" 启动灌溉 / "stop" 停止 / "auto" 切换自动模式</param>
+    /// <param name="channel">目标花盆 1/2/3；0 = 全部</param>
     /// <param name="durationMinutes">启动灌溉时的时长（分钟），会被自动限制在 1~30；stop/auto 传 0 即可</param>
-    public void ControlPump(string action, int durationMinutes, Action<ControlResponse> onSuccess, Action<string> onError)
+    public void ControlPump(string action, int channel, int durationMinutes, Action<ControlResponse> onSuccess, Action<string> onError)
     {
         // 参数校验与归一化
         action = string.IsNullOrEmpty(action) ? "" : action.Trim().ToLowerInvariant();
@@ -138,10 +139,11 @@ public class IrrigationApiClient : MonoBehaviour
             ? Mathf.Clamp(durationMinutes, ApiConfig.MinIrrigationMinutes, ApiConfig.MaxIrrigationMinutes)
             : 0;
 
-        // 使用 JsonUtility 序列化请求体，字段名与服务器要求一致
+        // 使用 JsonUtility 序列化请求体，字段名与服务器要求一致（channel=0 时后端按 all 处理）
         string body = JsonUtility.ToJson(new ControlRequest
         {
             action = action,
+            channel = Mathf.Clamp(channel, 0, 3),
             duration_minutes = duration
         });
 

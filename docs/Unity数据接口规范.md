@@ -1,451 +1,199 @@
-# 数字孪生灌溉系统 - 数据接口规范
+# 数字孪生灌溉系统 - Unity 数据接口规范 v3.0.0
 
 ## 📡 接口概览
 
 **基础地址**: `http://localhost:5000`（本地默认；部署后改为服务器地址，真实 IP 见内部部署文档，勿提交公开仓库）  
 **数据格式**: JSON  
 **编码**: UTF-8  
-**API版本**: 2.0.0
+**API版本**: 3.0.0  
+**通道模型**: 3 路独立灌溉（花盆 1/2/3），无温湿度字段
+
+> 完整契约见《系统接口契约v3.md》。所有数组下标 0/1/2 分别对应花盆 1/2/3。
 
 ---
 
 ## 🔄 实时数据接口
 
-### **接口地址**
 ```
 GET /api/realtime-data
 ```
 
-### **响应数据格式**
 ```json
 {
-  "soil_moisture": 45.2,
-  "temperature": 23.5, 
-  "humidity": 67.8,
-  "pump_status": false,
-  "irrigation_duration": 0,
-  "last_update": "2026-08-09T14:30:25.123456",
+  "channels": [
+    {"channel": 1, "soil_moisture": 45.2, "pump_status": false, "irrigation_duration": 0},
+    {"channel": 2, "soil_moisture": 50.1, "pump_status": true,  "irrigation_duration": 120},
+    {"channel": 3, "soil_moisture": 38.7, "pump_status": false, "irrigation_duration": 0}
+  ],
+  "soil_moisture_avg": 44.7,
+  "active_pumps": 1,
+  "data_source": "simulated",
   "auto_irrigation_enabled": true,
-  "data_source": "simulated"
+  "last_update": "2026-08-13T23:00:00"
 }
 ```
 
-### **字段说明**
-| 字段名 | 数据类型 | 取值范围 | 说明 |
-|--------|----------|----------|------|
-| `soil_moisture` | float | 0-100 | 土壤湿度百分比，正常范围10-80 |
-| `temperature` | float | -10,50 | 环境温度（摄氏度），模拟温室环境 |
-| `humidity` | float | 20-95 | 空气相对湿度百分比 |
-| `pump_status` | boolean | true/false | 水泵当前运行状态 |
-| `irrigation_duration` | integer | 0-600 | 当前灌溉持续时间（秒） |
-| `last_update` | string | ISO8601格式 | 数据最后更新时间戳 |
-| `auto_irrigation_enabled` | boolean | true/false | 自动灌溉模式开关 |
-| `data_source` | string | "simulated"/"mqtt" | 当前数据来源：模拟数据 / 真实传感器（v2.0.0 新增） |
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `channels` | array | 3 路数据，下标 0-2 = 花盆 1-3 |
+| `channels[].channel` | int | 花盆编号 1/2/3 |
+| `channels[].soil_moisture` | float | 土壤湿度 %（10-80 正常范围） |
+| `channels[].pump_status` | bool | 水泵是否运行 |
+| `channels[].irrigation_duration` | int | 灌溉已持续秒数 |
+| `soil_moisture_avg` | float | 3 路平均湿度 |
+| `active_pumps` | int | 运行中的水泵数量 |
+| `data_source` | string | `simulated` 模拟 / `mqtt` 真实设备 |
+| `auto_irrigation_enabled` | bool | 自动灌溉模式开关 |
 
-### **调用示例**
-```bash
-curl http://localhost:5000/api/realtime-data
-```
-
-### **Unity调用示例**
-```csharp
-using UnityEngine;
-using UnityEngine.Networking;
-using System.Collections;
-
-public class RealtimeDataFetcher : MonoBehaviour
-{
-    private string apiUrl = "http://localhost:5000/api/realtime-data";
-    
-    IEnumerator GetRealtimeData()
-    {
-        using (UnityWebRequest request = UnityWebRequest.Get(apiUrl))
-        {
-            yield return request.SendWebRequest();
-            
-            if (request.result == UnityWebRequest.Result.Success)
-            {
-                string json = request.downloadHandler.text;
-                RealtimeData data = JsonUtility.FromJson<RealtimeData>(json);
-                
-                // 更新Unity场景中的数据显示
-                Debug.Log($"土壤湿度: {data.soil_moisture}%");
-                Debug.Log($"温度: {data.temperature}°C");
-                Debug.Log($"水泵状态: {(data.pump_status ? "运行中" : "关闭")}");
-            }
-            else
-            {
-                Debug.LogError("数据获取失败: " + request.error);
-            }
-        }
-    }
-}
-
-[System.Serializable]
-public class RealtimeData
-{
-    public float soil_moisture;
-    public float temperature;
-    public float humidity;
-    public bool pump_status;
-    public int irrigation_duration;
-    public string last_update;
-    public bool auto_irrigation_enabled;
-}
-```
+**Unity 轮询建议**：每 5 秒一次（`RealtimeDataPoller` 已实现）。
 
 ---
 
 ## 📊 历史数据接口
 
-### **接口地址**
 ```
 GET /api/historical-data?hours=24
 ```
 
-### **请求参数**
-| 参数名 | 类型 | 必填 | 默认值 | 说明 |
-|--------|------|------|--------|------|
-| `hours` | integer | 否 | 24 | 查询多少小时内的历史数据 |
-
-### **响应数据格式**
 ```json
 {
-  "data_points": [
-    {
-      "timestamp": "2026-08-09T14:30:25.123456",
-      "soil_moisture": 45.2,
-      "temperature": 23.5,
-      "humidity": 67.8,
-      "pump_status": false
-    },
-    {
-      "timestamp": "2026-08-09T14:25:25.123456", 
-      "soil_moisture": 44.8,
-      "temperature": 23.3,
-      "humidity": 68.1,
-      "pump_status": false
-    }
+  "channels": [
+    [{"timestamp": "...", "soil_moisture": 45.2, "pump_status": false}],
+    [{"timestamp": "...", "soil_moisture": 50.1, "pump_status": true}],
+    [{"timestamp": "...", "soil_moisture": 38.7, "pump_status": false}]
   ],
   "total_points": 288,
   "query_range_hours": 24
 }
 ```
 
-### **字段说明**
-| 字段名 | 数据类型 | 说明 |
-|--------|----------|------|
-| `data_points` | array | 数据点数组，每5分钟一个点 |
-| `timestamp` | string | ISO8601格式的时间戳 |
-| `total_points` | integer | 返回的数据点总数 |
-| `query_range_hours` | integer | 实际查询的时间范围 |
-
-### **调用示例**
-```bash
-# 获取最近24小时数据
-curl http://localhost:5000/api/historical-data?hours=24
-
-# 获取最近6小时数据  
-curl http://localhost:5000/api/historical-data?hours=6
-```
+- `channels` 为嵌套数组：`channels[0]` = 花盆1 的时间序列（每 5 分钟一个点）
+- Unity 端对应 `HistoricalDataPoint[][] channels`
 
 ---
 
 ## 🔮 预测数据接口
 
-### **接口地址**
 ```
 GET /api/prediction?minutes=30
 ```
 
-### **请求参数**
-| 参数名 | 类型 | 必填 | 默认值 | 说明 |
-|--------|------|------|--------|------|
-| `minutes` | integer | 否 | 30 | 预测未来多少分钟内的湿度变化 |
-
-### **响应数据格式**
 ```json
 {
   "predictions": [
-    {
-      "future_time": "2026-08-09T15:00:25.123456",
-      "minutes_ahead": 30,
-      "predicted_soil_moisture": 42.1,
-      "confidence": 0.85
-    },
-    {
-      "future_time": "2026-08-09T14:45:25.123456",
-      "minutes_ahead": 15, 
-      "predicted_soil_moisture": 43.7,
-      "confidence": 0.92
-    }
+    [{"future_time": "...", "minutes_ahead": 5, "predicted_soil_moisture": 44.0, "confidence": 0.95}],
+    [...],
+    [...]
   ],
-  "current_conditions": {
-    "soil_moisture": 45.2,
-    "temperature": 23.5,
-    "humidity": 67.8,
-    "pump_status": false,
-    "irrigation_duration": 0,
-    "last_update": "2026-08-09T14:30:25.123456",
-    "auto_irrigation_enabled": true
-  },
+  "current_conditions": { "channels": [...], "soil_moisture_avg": 44.7, "data_source": "..." },
   "prediction_horizon_minutes": 30,
-  "algorithm_info": "基于物理规律的土壤湿度变化预测模型"
+  "algorithm_info": "基于历史趋势的土壤湿度线性回归预测模型"
 }
 ```
 
-### **字段说明**
-| 字段名 | 数据类型 | 说明 |
-|--------|----------|------|
-| `predictions` | array | 预测数据点数组 |
-| `future_time` | string | 预测时间点（ISO8601格式） |
-| `minutes_ahead` | integer | 距离当前时间的分钟数 |
-| `predicted_soil_moisture` | float | 预测的土壤湿度值 |
-| `confidence` | float | 预测置信度（0-1之间） |
-| `prediction_horizon_minutes` | integer | 预测时间范围 |
-| `algorithm_info` | string | 预测算法描述 |
-
-### **调用示例**
-```bash
-# 预测30分钟内的湿度变化
-curl http://localhost:5000/api/prediction?minutes=30
-
-# 预测2小时内的湿度变化
-curl http://localhost:5000/api/prediction?minutes=120
-```
+- `predictions` 为嵌套数组：下标 0-2 = 花盆 1-3，每项为预测点数组（每 5 分钟一个点）
+- 预测范围限制：5~180 分钟
+- `confidence` 随预测时间递减（1.0 → 0.7）
 
 ---
 
-## 🎮 水泵控制接口
+## 🎮 水泵控制接口（3 路）
 
-### **接口地址**
 ```
 POST /api/control-pump
 ```
 
-### **请求数据格式**
+### 请求
 ```json
-{
-  "action": "start",
-  "duration_minutes": 5
-}
+{"channel": 2, "action": "start", "duration_minutes": 5}
 ```
 
-### **请求参数说明**
-| 字段名 | 类型 | 必填 | 可选值 | 说明 |
-|--------|------|------|--------|------|
-| `action` | string | 是 | "start"/"stop"/"auto" | 控制命令 |
-| `duration_minutes` | integer | 否 | 1-30 | 灌溉持续时间（分钟），仅在action="start"时有效 |
+| 字段 | 必填 | 取值 | 说明 |
+|------|------|------|------|
+| `channel` | 否 | 1/2/3/0/"all" | 目标花盆；缺省默认 1；0 或 "all" = 全部 |
+| `action` | 是 | start/stop/auto | 控制命令 |
+| `duration_minutes` | 否 | 1-30 | 仅 start 有效 |
 
-### **动作说明**
-- `"start"`: 立即启动灌溉，可指定持续时间
-- `"stop"`: 立即停止灌溉
-- `"auto"`: 切换到自动模式（系统根据湿度阈值自动控制）
-
-### **响应数据格式**
+### 响应（单路）
 ```json
-{
-  "status": "success",
-  "message": "灌溉已启动",
-  "pump_status": true,
-  "action": "start"
-}
+{"status": "success", "message": "灌溉已启动（模拟）", "channel": 2, "channels": [2], "pump_status": [true]}
 ```
 
-### **调用示例**
+### 调用示例
 ```bash
-# 启动灌溉，持续10分钟
+# 启动花盆2 灌溉 5 分钟
 curl -X POST http://localhost:5000/api/control-pump \
   -H "Content-Type: application/json" \
-  -d '{"action": "start", "duration_minutes": 10}'
+  -d '{"channel": 2, "action": "start", "duration_minutes": 5}'
 
-# 停止灌溉
+# 停止全部
 curl -X POST http://localhost:5000/api/control-pump \
   -H "Content-Type: application/json" \
-  -d '{"action": "stop"}'
-
-# 切换到自动模式
-curl -X POST http://localhost:5000/api/control-pump \
-  -H "Content-Type: application/json" \
-  -d '{"action": "auto"}'
-```
-
-### **Unity控制示例**
-```csharp
-using UnityEngine;
-using UnityEngine.Networking;
-using System.Collections;
-
-public class IrrigationController : MonoBehaviour
-{
-    private string controlUrl = "http://localhost:5000/api/control-pump";
-    
-    // 启动灌溉
-    public void StartIrrigation(int durationMinutes = 5)
-    {
-        StartCoroutine(ControlPump("start", durationMinutes));
-    }
-    
-    // 停止灌溉
-    public void StopIrrigation()
-    {
-        StartCoroutine(ControlPump("stop", 0));
-    }
-    
-    IEnumerator ControlPump(string action, int durationMinutes = 0)
-    {
-        ControlRequest request = new ControlRequest
-        {
-            action = action,
-            duration_minutes = durationMinutes
-        };
-        
-        string jsonData = JsonUtility.ToJson(request);
-        
-        using (UnityWebRequest webRequest = new UnityWebRequest(controlUrl, "POST"))
-        {
-            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonData);
-            webRequest.uploadHandler = new UploadHandlerRaw(bodyRaw);
-            webRequest.downloadHandler = new DownloadHandlerBuffer();
-            webRequest.SetRequestHeader("Content-Type", "application/json");
-            
-            yield return webRequest.SendWebRequest();
-            
-            if (webRequest.result == UnityWebRequest.Result.Success)
-            {
-                Debug.Log("灌溉控制成功: " + webRequest.downloadHandler.text);
-            }
-            else
-            {
-                Debug.LogError("控制失败: " + webRequest.error);
-            }
-        }
-    }
-}
-
-[System.Serializable]
-public class ControlRequest
-{
-    public string action;
-    public int duration_minutes;
-}
+  -d '{"channel": "all", "action": "stop"}'
 ```
 
 ---
 
 ## 📈 系统状态接口
 
-### **接口地址**
 ```
 GET /api/system-status
 ```
 
-### **响应数据格式**
 ```json
 {
   "system_running": true,
   "uptime_seconds": 15432,
   "data_points_collected": 145,
-  "simulation_active": true,
-  "server_time": "2026-08-09T14:35:12.345678",
-  "api_version": "2.0.0",
+  "channel_count": 3,
+  "server_time": "...",
+  "api_version": "3.0.0",
   "data_source_mode": "auto",
   "data_source": "simulated"
 }
 ```
 
----
+## 🌤️ 天气感知接口（可选，OpenClaw AI 联网查询）
 
-## 🔧 API部署和测试
-
-### **启动模拟服务器**
-```bash
-# 安装依赖
-pip install flask flask-cors paho-mqtt
-
-# 启动服务器（数据源模式 auto/simulated/mqtt 可用环境变量 DATA_SOURCE 配置）
-python irrigation_server.py
+```
+GET /api/weather
 ```
 
-### **服务器启动后的输出示例**
-```
-🌱 数字孪生灌溉系统模拟数据服务器启动中...
-📡 API服务地址: http://localhost:5000
-📖 API文档: http://localhost:5000/
-⚡ 实时数据接口: http://localhost:5000/api/realtime-data
-📊 历史数据接口: http://localhost:5000/api/historical-data?hours=24
-🔮 预测数据接口: http://localhost:5000/api/prediction?minutes=30
-🎮 水泵控制接口: POST http://localhost:5000/api/control-pump
-
-================================================
-🚀 服务器已启动，Unity可以通过以上接口进行联调测试！
-================================================
+```json
+{
+  "enabled": true,
+  "city": "大连",
+  "forecast": [
+    {"date": "2026-08-14", "weather": "阵雨", "temperature_c": 26.6, "rain_probability_percent": 82}
+  ],
+  "updated_at": "...",
+  "last_error": null
+}
 ```
 
-### **数据模拟逻辑说明**
-
-#### **温度变化模拟**
-- 基于正弦函数模拟昼夜温差
-- 峰值在下午2-3点，谷值在凌晨4-5点
-- 温度范围：14-30°C
-
-#### **湿度变化模拟**
-- 与温度呈负相关
-- 加上随机波动模拟真实环境
-- 湿度范围：20%-90%
-
-#### **土壤湿度模拟**
-- **自然蒸发**：每5秒下降0.1-0.4%，受温度和空气湿度影响
-- **灌溉时**：每5秒上升2-4%
-- **自动触发**：湿度低于30%时自动开始灌溉
-- **自动停止**：灌溉10分钟后自动停止
-- **湿度范围**：10%-80%
-
-#### **预测算法**
-- 基于当前环境条件的物理模型
-- 考虑温度、湿度对蒸发速率的影响
-- 预测置信度随预测时间递减
+- 服务器每 30 分钟通过 OpenClaw AI 联网刷新一次
+- `enabled=false` 或 `forecast=null` 表示不可用（前端隐藏天气显示即可）
+- 天气数据同时出现在 `/api/prediction` 的 `weather_forecast` 字段，并参与预测修正（降雨概率高 → 蒸发减缓）
+- Unity 数据模型：`WeatherStatus` / `WeatherEntry`（见 DataModels.cs）
 
 ---
 
-## 🚀 快速开始指南
+## 🔧 Unity 对接脚本（已提供，见 `frontend-unity/Assets/Scripts/`）
 
-### **第一步：启动服务器**
-```bash
-cd "项目目录"
-python 模拟数据服务器.py
-```
-
-### **第二步：测试接口**
-```bash
-# 测试实时数据
-curl http://localhost:5000/api/realtime-data
-
-# 测试控制功能
-curl -X POST http://localhost:5000/api/control-pump \
-  -H "Content-Type: application/json" \
-  -d '{"action": "start", "duration_minutes": 3}'
-```
-
-### **第三步：Unity集成**
-1. 在Unity场景中添加API调用脚本
-2. 使用协程定期获取实时数据（建议每5秒）
-3. 实现数据可视化（图表、进度条、3D效果等）
-4. 添加控制按钮来操作灌溉系统
-5. 实现预测数据的图表显示
-
-### **第四步：调试建议**
-- 控制台查看服务器日志，确认数据正常更新
-- Unity中使用Debug.Log打印接收到的数据
-- 测试各种边界情况（湿度极值、控制冲突等）
-- 验证预测数据的合理性
+| 脚本 | 用途 |
+|------|------|
+| `ApiConfig.cs` | 服务器地址与接口路径配置 |
+| `DataModels.cs` | v3 数据模型（`ChannelData[]` 等），字段名与 JSON 完全一致 |
+| `IrrigationApiClient.cs` | API 客户端单例，`ControlPump(action, channel, minutes, ...)` |
+| `RealtimeDataPoller.cs` | 每 5 秒轮询 + 事件回调 |
+| `IrrigationUIController.cs` | 3 路 UI 绑定与控制 |
+| `SceneVisualController.cs` | 驱动 3D 模型（土壤颜色/LED/水流粒子） |
 
 ---
 
 ## ⚠️ 注意事项
 
-1. **跨域问题**：服务器已配置CORS，Unity可直接调用
-2. **数据更新频率**：模拟数据每5秒更新一次，符合比赛要求
-3. **控制响应时间**：模拟中控制立即生效，实际硬件响应时间≤3秒
-4. **预测范围限制**：最大支持180分钟（3小时）预测
-5. **错误处理**：Unity代码中需要添加网络错误处理逻辑
+1. **数据源切换**：`data_source` 字段区分模拟/真实设备；MQTT 断线 30 秒后自动回退模拟（`auto` 模式）
+2. **控制响应**：真实模式下控制指令经 MQTT 下发，响应中 message 带"（MQTT）"标识
+3. **错误处理**：Unity 代码需处理网络错误/超时（脚本已内置 10 秒超时与重连提示）
+4. **隐私**：服务器真实 IP 属敏感信息，勿提交公开仓库
