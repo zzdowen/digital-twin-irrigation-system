@@ -119,6 +119,12 @@ public class IrrigationApiClient : MonoBehaviour
         StartCoroutine(RequestJson<SystemStatus>(ApiConfig.SystemStatusUrl, onSuccess, onError));
     }
 
+    /// <summary>获取天气感知数据（GET /api/weather，OpenClaw AI 查询，可能返回 enabled=false）</summary>
+    public void GetWeather(Action<WeatherStatus> onSuccess, Action<string> onError)
+    {
+        StartCoroutine(RequestJson<WeatherStatus>(ApiConfig.WeatherUrl, onSuccess, onError));
+    }
+
     /// <summary>
     /// 控制水泵（POST /api/control-pump，v3.0.0 三路）。
     /// </summary>
