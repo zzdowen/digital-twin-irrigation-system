@@ -1,147 +1,333 @@
-// ============================================================
-// Unity 3D - 数字孪生灌溉系统 API 客户端
-// 成员C（Unity前端负责人）在此基础上开发
-// 功能：调用后端 REST API，获取实时数据/历史数据/预测数据
-// ============================================================
-using System;
+﻿using System;
 using System.Collections;
-using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
 
-[System.Serializable]
-public class RealtimeData
-{
-    public float soil_moisture;
-    public float temperature;
-    public float humidity;
-    public bool pump_status;
-    public bool auto_irrigation_enabled;
-    public int irrigation_duration;
-    public string last_update;
-}
-
-[System.Serializable]
-public class PredictionData
-{
-    public float current_moisture;
-    public List<float> predicted_moisture;
-    public List<float> confidence;
-    public List<string> timestamps;
-    public bool risk_of_drought;
-    public string message;
-}
-
+/// <summary>
+/// 灌溉系统 API 客户端（单例 MonoBehaviour）。
+/// 封装与 Flask 服务器的全部 HTTP 接口，基于 UnityWebRequest + 协程实现，
+/// 不依赖任何第三方库。
+///
+/// 使用方式：
+///   IrrigationApiClient.GetOrCreate().GetRealtimeData(
+///       data => { ... },                 // 成功回调
+///       error => { ... });               // 失败回调（含超时/网络错误）
+///
+/// 所有回调都在主线程触发，可直接操作 UI。
+///
+/// 说明：
+/// - 兼容 Unity 2020.1+（使用 UnityWebRequest.Result 判断结果）；
+///   若项目是 2019 及更早版本，请把 result != Success 的判断替换为
+///   isNetworkError || isHttpError。
+/// - StopAll() 用于场景切换/退出时终止所有在途请求。
+/// </summary>
 public class IrrigationApiClient : MonoBehaviour
 {
-    [Header("服务器配置")]
-    [Tooltip("后端服务器地址，可切换本地/云端")]
-    public string serverUrl = "http://localhost:5000"; // TODO: 部署后替换为云服务器地址
+    // ------------------------------------------------------------------
+    // 单例
+    // ------------------------------------------------------------------
+    public static IrrigationApiClient Instance { get; private set; }
 
-    // 实时数据缓存（供UI和3D场景读取）
-    public RealtimeData CurrentRealtime { get; private set; }
-    public PredictionData CurrentPrediction { get; private set; }
+    [Header("请求设置")]
+    [Tooltip("单个请求的超时时间（秒）")]
+    [SerializeField] private int timeoutSeconds = ApiConfig.DefaultTimeoutSeconds;
 
-    // 数据更新事件（UI可订阅）
-    public event Action OnRealtimeUpdated;
-    public event Action OnPredictionUpdated;
+    /// <summary>请求超时时间（秒），供其他脚本（如轮询器）参考</summary>
+    public int TimeoutSeconds => timeoutSeconds;
 
-    private float _refreshInterval = 5f;  // 数据刷新周期 5 秒
-    private Coroutine _realtimeRoutine;
+    /// <summary>当前是否有请求在途（可用于 UI 显示加载状态）</summary>
+    public bool IsBusy { get; private set; }
 
-    void Start()
+    private int _activeRequests; // 在途请求计数
+    private int _generation;     // 世代号：StopAll 后递增，使所有旧回调失效
+
+    // ------------------------------------------------------------------
+    // 生命周期
+    // ------------------------------------------------------------------
+
+    private void Awake()
     {
-        StartRealtimeLoop();
-    }
-
-    // ============ 实时数据轮询 ============
-    public void StartRealtimeLoop()
-    {
-        if (_realtimeRoutine != null) StopCoroutine(_realtimeRoutine);
-        _realtimeRoutine = StartCoroutine(RealtimeLoop());
-    }
-
-    IEnumerator RealtimeLoop()
-    {
-        while (true)
+        if (Instance != null && Instance != this)
         {
-            yield return FetchRealtimeData();
-            yield return new WaitForSeconds(_refreshInterval);
+            Destroy(gameObject); // 场景中已有实例，销毁重复挂载的物体
+            return;
         }
+        Instance = this;
+        DontDestroyOnLoad(gameObject); // 跨场景常驻
     }
 
-    // ============ 获取实时数据 ============
-    public IEnumerator FetchRealtimeData()
+    private void OnDestroy()
     {
-        string url = serverUrl + "/api/realtime-data";
+        if (Instance == this) Instance = null;
+    }
+
+    /// <summary>
+    /// 获取单例；若场景中不存在则自动创建一个常驻 GameObject（懒加载）。
+    /// 推荐所有调用方统一使用本方法，保证任何时刻客户端都可用。
+    /// </summary>
+    public static IrrigationApiClient GetOrCreate()
+    {
+        if (Instance == null)
+        {
+            var go = new GameObject("[IrrigationApiClient]");
+            Instance = go.AddComponent<IrrigationApiClient>();
+            DontDestroyOnLoad(go);
+        }
+        return Instance;
+    }
+
+    /// <summary>
+    /// 停止所有在途请求（例如场景切换、退出登录、销毁时调用）。
+    /// 停止后，之前发起的请求即使返回，其回调也不会再被触发。
+    /// </summary>
+    public void StopAll()
+    {
+        _generation++;          // 使旧回调全部失效
+        StopAllCoroutines();    // 停止所有协程
+        _activeRequests = 0;
+        IsBusy = false;
+    }
+
+    // ------------------------------------------------------------------
+    // 对外 API（全部为异步，回调式）
+    // ------------------------------------------------------------------
+
+    /// <summary>获取实时数据（GET /api/realtime-data）</summary>
+    public void GetRealtimeData(Action<RealtimeData> onSuccess, Action<string> onError)
+    {
+        StartCoroutine(RequestJson<RealtimeData>(ApiConfig.RealtimeDataUrl, onSuccess, onError));
+    }
+
+    /// <summary>获取历史数据（GET /api/historical-data?hours=N，N 为 1~168 小时内的小时数）</summary>
+    public void GetHistoricalData(int hours, Action<HistoricalData> onSuccess, Action<string> onError)
+    {
+        string url = ApiConfig.WithQuery(ApiConfig.HistoricalDataUrl, "hours=" + Mathf.Max(1, hours));
+        StartCoroutine(RequestJson<HistoricalData>(url, onSuccess, onError));
+    }
+
+    /// <summary>获取预测数据（GET /api/prediction?minutes=N，预测未来 N 分钟）</summary>
+    public void GetPrediction(int minutes, Action<PredictionData> onSuccess, Action<string> onError)
+    {
+        string url = ApiConfig.WithQuery(ApiConfig.PredictionUrl, "minutes=" + Mathf.Max(1, minutes));
+        StartCoroutine(RequestJson<PredictionData>(url, onSuccess, onError));
+    }
+
+    /// <summary>获取系统状态（GET /api/system-status）</summary>
+    public void GetSystemStatus(Action<SystemStatus> onSuccess, Action<string> onError)
+    {
+        StartCoroutine(RequestJson<SystemStatus>(ApiConfig.SystemStatusUrl, onSuccess, onError));
+    }
+
+    /// <summary>
+    /// 控制水泵（POST /api/control-pump）。
+    /// </summary>
+    /// <param name="action">动作："start" 启动灌溉 / "stop" 停止 / "auto" 切换自动模式</param>
+    /// <param name="durationMinutes">启动灌溉时的时长（分钟），会被自动限制在 1~30；stop/auto 传 0 即可</param>
+    public void ControlPump(string action, int durationMinutes, Action<ControlResponse> onSuccess, Action<string> onError)
+    {
+        // 参数校验与归一化
+        action = string.IsNullOrEmpty(action) ? "" : action.Trim().ToLowerInvariant();
+        if (action != "start" && action != "stop" && action != "auto")
+        {
+            onError?.Invoke("非法操作：action 只能是 start / stop / auto");
+            return;
+        }
+
+        int duration = action == "start"
+            ? Mathf.Clamp(durationMinutes, ApiConfig.MinIrrigationMinutes, ApiConfig.MaxIrrigationMinutes)
+            : 0;
+
+        // 使用 JsonUtility 序列化请求体，字段名与服务器要求一致
+        string body = JsonUtility.ToJson(new ControlRequest
+        {
+            action = action,
+            duration_minutes = duration
+        });
+
+        StartCoroutine(PostJson(ApiConfig.ControlPumpUrl, body, onSuccess, onError));
+    }
+
+    // ------------------------------------------------------------------
+    // 内部实现：GET 请求 + JSON 解析（泛型）
+    // ------------------------------------------------------------------
+
+    private IEnumerator RequestJson<T>(string url, Action<T> onSuccess, Action<string> onError) where T : class
+    {
+        int gen = _generation;
+        BeginRequest();
+
         using (UnityWebRequest request = UnityWebRequest.Get(url))
         {
-            yield return request.SendWebRequest();
+            bool timedOut = false;
+            yield return SendWithTimeout(request, timeoutSeconds, v => timedOut = v);
 
-            if (request.result == UnityWebRequest.Result.Success)
+            // 已被 StopAll 终止：静默退出，不再回调
+            if (!IsCurrent(gen)) yield break;
+
+            if (timedOut)
             {
-                CurrentRealtime = JsonUtility.FromJson<RealtimeData>(request.downloadHandler.text);
-                OnRealtimeUpdated?.Invoke();
-                Debug.Log($"[API] 实时数据: 土壤湿度={CurrentRealtime.soil_moisture:F1}% " +
-                          $"温度={CurrentRealtime.temperature:F1}°C 水泵={CurrentRealtime.pump_status}");
+                FinishRequest();
+                onError?.Invoke(string.Format("请求超时（{0} 秒无响应）：{1}", timeoutSeconds, url));
+                yield break;
             }
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                FinishRequest();
+                onError?.Invoke(string.Format("请求失败：{0}（HTTP {1}）", request.error, (int)request.responseCode));
+                yield break;
+            }
+
+            string text = request.downloadHandler != null ? request.downloadHandler.text : null;
+            T data = ParseJson<T>(text, out string parseError);
+            FinishRequest();
+
+            if (data != null)
+                onSuccess?.Invoke(data);
             else
-            {
-                Debug.LogError($"[API] 获取实时数据失败: {request.error}");
-            }
+                onError?.Invoke(parseError ?? "数据解析失败");
         }
     }
 
-    // ============ 获取预测数据 ============
-    public IEnumerator FetchPrediction(int minutes = 30)
+    // ------------------------------------------------------------------
+    // 内部实现：POST 请求（JSON 请求体）+ 解析
+    // ------------------------------------------------------------------
+
+    private IEnumerator PostJson<T>(string url, string jsonBody, Action<T> onSuccess, Action<string> onError) where T : class
     {
-        string url = $"{serverUrl}/api/prediction?minutes={minutes}";
-        using (UnityWebRequest request = UnityWebRequest.Get(url))
+        int gen = _generation;
+        BeginRequest();
+
+        using (UnityWebRequest request = new UnityWebRequest(url, UnityWebRequest.kHttpVerbPOST))
         {
-            yield return request.SendWebRequest();
-
-            if (request.result == UnityWebRequest.Result.Success)
-            {
-                CurrentPrediction = JsonUtility.FromJson<PredictionData>(request.downloadHandler.text);
-                OnPredictionUpdated?.Invoke();
-                Debug.Log($"[API] 预测数据: 30分钟后湿度={CurrentPrediction.predicted_moisture[^1]:F1}% " +
-                          $"缺水风险={CurrentPrediction.risk_of_drought}");
-            }
-            else
-            {
-                Debug.LogError($"[API] 获取预测数据失败: {request.error}");
-            }
-        }
-    }
-
-    // ============ 水泵控制 ============
-    public IEnumerator ControlPump(bool start)
-    {
-        string url = serverUrl + "/api/control-pump";
-        string json = "{\"action\":\"" + (start ? "start" : "stop") + "\"}";
-
-        using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
-        {
-            byte[] body = System.Text.Encoding.UTF8.GetBytes(json);
-            request.uploadHandler = new UploadHandlerRaw(body);
+            // 手动构造 JSON 请求体（UnityWebRequest.Post 默认是表单格式，不适用）
+            request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(jsonBody));
             request.downloadHandler = new DownloadHandlerBuffer();
             request.SetRequestHeader("Content-Type", "application/json");
 
-            yield return request.SendWebRequest();
+            bool timedOut = false;
+            yield return SendWithTimeout(request, timeoutSeconds, v => timedOut = v);
 
-            if (request.result == UnityWebRequest.Result.Success)
+            if (!IsCurrent(gen)) yield break;
+
+            if (timedOut)
             {
-                Debug.Log($"[API] 水泵控制成功: {request.downloadHandler.text}");
+                FinishRequest();
+                onError?.Invoke(string.Format("请求超时（{0} 秒无响应）：{1}", timeoutSeconds, url));
+                yield break;
             }
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                FinishRequest();
+                onError?.Invoke(string.Format("请求失败：{0}（HTTP {1}）", request.error, (int)request.responseCode));
+                yield break;
+            }
+
+            string text = request.downloadHandler != null ? request.downloadHandler.text : null;
+            T data = ParseJson<T>(text, out string parseError);
+            FinishRequest();
+
+            if (data != null)
+                onSuccess?.Invoke(data);
             else
-            {
-                Debug.LogError($"[API] 水泵控制失败: {request.error}");
-            }
+                onError?.Invoke(parseError ?? "数据解析失败");
         }
     }
 
-    // ============ UI 按钮回调（拖拽绑定） ============
-    public void OnPumpStartButton() => StartCoroutine(ControlPump(true));
-    public void OnPumpStopButton() => StartCoroutine(ControlPump(false));
-    public void OnRefreshPredictionButton() => StartCoroutine(FetchPrediction(30));
+    // ------------------------------------------------------------------
+    // 工具方法
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// 发送请求并做超时保护。
+    /// 使用帧时间累计（unscaledDeltaTime），即使游戏暂停（Time.timeScale=0）超时依然生效。
+    /// 超时时主动 Abort 释放连接，并通过 onTimeout 回调告知调用方。
+    /// </summary>
+    private IEnumerator SendWithTimeout(UnityWebRequest request, int seconds, Action<bool> onTimeout)
+    {
+        UnityWebRequestAsyncOperation operation = request.SendWebRequest();
+        float elapsed = 0f;
+
+        while (!operation.isDone)
+        {
+            if (elapsed >= seconds)
+            {
+                onTimeout?.Invoke(true);
+                request.Abort();
+                yield break;
+            }
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        onTimeout?.Invoke(false);
+    }
+
+    /// <summary>解析 JSON 字符串为指定类型；失败时返回 null 并给出错误信息</summary>
+    private T ParseJson<T>(string json, out string error) where T : class
+    {
+        error = null;
+        if (string.IsNullOrEmpty(json))
+        {
+            error = "服务器返回了空数据";
+            return null;
+        }
+        try
+        {
+            return JsonUtility.FromJson<T>(json);
+        }
+        catch (Exception e)
+        {
+            error = "JSON 解析失败：" + e.Message;
+            return null;
+        }
+    }
+
+    private void BeginRequest()
+    {
+        _activeRequests++;
+        IsBusy = true;
+    }
+
+    private void FinishRequest()
+    {
+        _activeRequests = Mathf.Max(0, _activeRequests - 1);
+        IsBusy = _activeRequests > 0;
+    }
+
+    /// <summary>判断回调所属的请求是否仍属于当前世代（防止 StopAll 后旧回调触发）</summary>
+    private bool IsCurrent(int generation)
+    {
+        return generation == _generation;
+    }
+
+    // ------------------------------------------------------------------
+    // 使用示例（取消注释即可试用）
+    // ------------------------------------------------------------------
+    /*
+    private void ExampleUsage()
+    {
+        // 获取历史数据
+        IrrigationApiClient.GetOrCreate().GetHistoricalData(24,
+            data => Debug.Log("历史点数：" + data.total_points),
+            err => Debug.LogError(err));
+
+        // 获取未来 30 分钟土壤湿度预测
+        IrrigationApiClient.GetOrCreate().GetPrediction(30,
+            data => Debug.Log("预测算法：" + data.algorithm_info),
+            err => Debug.LogError(err));
+
+        // 启动灌溉 5 分钟
+        IrrigationApiClient.GetOrCreate().ControlPump("start", 5,
+            resp => Debug.Log(resp.message),
+            err => Debug.LogError(err));
+
+        // 查询系统状态
+        IrrigationApiClient.GetOrCreate().GetSystemStatus(
+            status => Debug.Log("API 版本：" + status.api_version),
+            err => Debug.LogError(err));
+    }
+    */
 }

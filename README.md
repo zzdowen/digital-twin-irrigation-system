@@ -45,7 +45,7 @@
 ```
 digital-twin-irrigation-system/
 ├── backend/              # Python 后端
-│   └── 模拟数据服务器.py  # Flask 模拟数据服务 (已部署)
+│   └── irrigation_server.py  # Flask 数据服务 (v2.0.0，已部署)
 ├── hardware/             # 硬件相关
 │   └── esp32/            # ESP32 固件代码
 ├── frontend-unity/       # Unity 3D 前端
@@ -63,14 +63,17 @@ digital-twin-irrigation-system/
 
 ## 🔌 API 接口 (已部署)
 
-模拟数据服务器已部署至云服务器，接口如下：
+数据服务器 (v2.0.0) 已部署至云服务器，接口如下：
 
 | 接口 | 方法 | 说明 |
 |------|------|------|
-| `/api/realtime-data` | GET | 实时环境数据 |
+| `/api/realtime-data` | GET | 实时环境数据（含 data_source 字段） |
 | `/api/historical-data?hours=24` | GET | 历史数据 |
 | `/api/prediction?minutes=30` | GET | 湿度预测 |
 | `/api/control-pump` | POST | 水泵控制 |
+| `/api/system-status` | GET | 系统状态 |
+
+数据源支持三种模式（环境变量 `DATA_SOURCE` 控制）：`auto`（默认，自动切换）/ `simulated` / `mqtt`，真实传感器接入后可平滑切换。
 
 ## 👥 团队分工
 
@@ -78,12 +81,12 @@ digital-twin-irrigation-system/
 
 ## 🚀 快速开始
 
-### 本地运行模拟数据服务器
+### 本地运行数据服务器
 
 ```bash
 cd backend
-pip install flask flask-cors
-python 模拟数据服务器.py
+pip install flask flask-cors paho-mqtt
+python irrigation_server.py
 ```
 
 ### 测试 API
@@ -99,10 +102,11 @@ curl http://localhost:5000/api/prediction?minutes=30
 ## 📅 开发进度
 
 - [x] 云服务器部署 (见内部部署文档)
-- [x] 模拟数据服务上线
+- [x] 数据服务 v2.0.0 上线（数据源抽象层 + MQTT 自动切换）
+- [x] Unity 数据对接脚本（5 个 C# 脚本）
 - [ ] ESP32 硬件开发
-- [ ] Python 后端预测模型
-- [ ] Unity 3D 可视化
+- [ ] Python 后端预测模型（机器学习）
+- [ ] Unity 3D 可视化场景
 - [ ] 系统集成测试
 - [ ] 初赛文档准备
 

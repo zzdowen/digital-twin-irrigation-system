@@ -2,10 +2,10 @@
 
 ## 📡 接口概览
 
-**基础地址**: `http://localhost:5000`  
+**基础地址**: `http://localhost:5000`（本地默认；部署后改为服务器地址，真实 IP 见内部部署文档，勿提交公开仓库）  
 **数据格式**: JSON  
 **编码**: UTF-8  
-**API版本**: 1.0.0
+**API版本**: 2.0.0
 
 ---
 
@@ -25,7 +25,8 @@ GET /api/realtime-data
   "pump_status": false,
   "irrigation_duration": 0,
   "last_update": "2026-08-09T14:30:25.123456",
-  "auto_irrigation_enabled": true
+  "auto_irrigation_enabled": true,
+  "data_source": "simulated"
 }
 ```
 
@@ -39,6 +40,7 @@ GET /api/realtime-data
 | `irrigation_duration` | integer | 0-600 | 当前灌溉持续时间（秒） |
 | `last_update` | string | ISO8601格式 | 数据最后更新时间戳 |
 | `auto_irrigation_enabled` | boolean | true/false | 自动灌溉模式开关 |
+| `data_source` | string | "simulated"/"mqtt" | 当前数据来源：模拟数据 / 真实传感器（v2.0.0 新增） |
 
 ### **调用示例**
 ```bash
@@ -346,7 +348,9 @@ GET /api/system-status
   "data_points_collected": 145,
   "simulation_active": true,
   "server_time": "2026-08-09T14:35:12.345678",
-  "api_version": "1.0.0"
+  "api_version": "2.0.0",
+  "data_source_mode": "auto",
+  "data_source": "simulated"
 }
 ```
 
@@ -357,10 +361,10 @@ GET /api/system-status
 ### **启动模拟服务器**
 ```bash
 # 安装依赖
-pip install flask flask-cors
+pip install flask flask-cors paho-mqtt
 
-# 启动服务器
-python 模拟数据服务器.py
+# 启动服务器（数据源模式 auto/simulated/mqtt 可用环境变量 DATA_SOURCE 配置）
+python irrigation_server.py
 ```
 
 ### **服务器启动后的输出示例**
