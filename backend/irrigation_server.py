@@ -20,6 +20,7 @@ import os
 import json
 import math
 import re
+import sqlite3
 import time
 import random
 import subprocess
@@ -54,6 +55,15 @@ AUTO_IRRIGATION_THRESHOLD = 30.0          # 湿度低于此值自动灌溉（%�
 MAX_IRRIGATION_SEC = 600                  # 自动灌溉最长 10 分钟
 SOIL_MOISTURE_MIN, SOIL_MOISTURE_MAX = 10.0, 80.0
 
+# 历史数据持久化（SQLite，重启不丢）
+HISTORY_DB_PATH = os.environ.get(
+    "HISTORY_DB_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "irrigation_history.db"))
+
+# 灌溉统计与节水基线
+PUMP_FLOW_RATE_LPM = float(os.environ.get("PUMP_FLOW_RATE_LPM", "1.5"))          # 水泵流量（升/分钟）
+TRADITIONAL_MINUTES_PER_DAY = float(os.environ.get("TRADITIONAL_MINUTES_PER_DAY", "30"))  # 传统经验灌溉基线（每路每天分钟数）
+
 # ---------- 天气感知（OpenClaw AI 智能查询，可关闭） ----------
 WEATHER_ENABLED = os.environ.get("WEATHER_ENABLED", "true").lower() in ("1", "true", "yes")
 WEATHER_CITY = os.environ.get("WEATHER_CITY", "大连")
@@ -68,6 +78,188 @@ START_TIME = time.time()
 
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
+
+
+# ============================================================
+# SQLite 存储（历史数据 + 灌溉事件，重启不丢）
+# ============================================================
+class HistoryStore:
+    """历史数据存储：内存镜像（供预测）+ SQLite 持久化（重启恢复/大范围查询）。"""
+
+    def __init__(self):
+        self._conn = sqlite3.connect(HISTORY_DB_PATH, check_same_thread=False)
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                timestamp TEXT PRIMARY KEY,
+                ch1_moisture REAL, ch1_pump INTEGER,
+                ch2_moisture REAL, ch2_pump INTEGER,
+                ch3_moisture REAL, ch3_pump INTEGER
+            )
+        """)
+        self._conn.commit()
+        self.points = self._load_recent(MAX_HISTORY_POINTS)
+        print(f"[存储] SQLite 就绪: {HISTORY_DB_PATH}（启动时载入 {len(self.points)} 个历史点）")
+
+    @property
+    def conn(self):
+        return self._conn
+
+    def _load_recent(self, limit):
+        rows = self._conn.execute(
+            "SELECT timestamp, ch1_moisture, ch1_pump, ch2_moisture, ch2_pump, ch3_moisture, ch3_pump "
+            "FROM history ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
+        rows.reverse()
+        return [self._row_to_point(r) for r in rows]
+
+    @staticmethod
+    def _row_to_point(row):
+        return {
+            "timestamp": row[0],
+            "channels": {
+                1: {"soil_moisture": row[1], "pump_status": bool(row[2])},
+                2: {"soil_moisture": row[3], "pump_status": bool(row[4])},
+                3: {"soil_moisture": row[5], "pump_status": bool(row[6])},
+            },
+        }
+
+    def append(self, point):
+        """写入 DB 并更新内存镜像。"""
+        ts = point["timestamp"]
+        ch = point["channels"]
+        self._conn.execute(
+            "INSERT OR REPLACE INTO history VALUES (?,?,?,?,?,?,?)",
+            (ts,
+             ch[1]["soil_moisture"], int(ch[1]["pump_status"]),
+             ch[2]["soil_moisture"], int(ch[2]["pump_status"]),
+             ch[3]["soil_moisture"], int(ch[3]["pump_status"])))
+        self._conn.commit()
+        self.points.append(point)
+        if len(self.points) > MAX_HISTORY_POINTS:
+            self.points = self.points[-MAX_HISTORY_POINTS:]
+
+    def query_since(self, cutoff_iso):
+        """从 DB 查询 cutoff 之后的全部点（内存镜像不足时使用，如重启后查大范围）。"""
+        rows = self._conn.execute(
+            "SELECT timestamp, ch1_moisture, ch1_pump, ch2_moisture, ch2_pump, ch3_moisture, ch3_pump "
+            "FROM history WHERE timestamp >= ? ORDER BY timestamp ASC", (cutoff_iso,)).fetchall()
+        return [self._row_to_point(r) for r in rows]
+
+
+class IrrigationStats:
+    """灌溉事件统计：次数/时长/用水量/节水率（事件持久化到 SQLite）。"""
+
+    def __init__(self, db_conn):
+        self._conn = db_conn
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS irrigation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel INTEGER,
+                start_time TEXT,
+                end_time TEXT,
+                duration_sec INTEGER
+            )
+        """)
+        self._conn.commit()
+
+    def record_event(self, channel, start_iso, end_iso, duration_sec):
+        self._conn.execute(
+            "INSERT INTO irrigation_events (channel, start_time, end_time, duration_sec) VALUES (?,?,?,?)",
+            (channel, start_iso, end_iso, duration_sec))
+        self._conn.commit()
+
+    def get_stats(self, uptime_seconds):
+        rows = self._conn.execute(
+            "SELECT channel, duration_sec, start_time FROM irrigation_events").fetchall()
+
+        total_events = len(rows)
+        total_dur = sum(r[1] for r in rows)
+        by_channel = {i: {"count": 0, "duration_sec": 0} for i in range(1, NUM_CHANNELS + 1)}
+        for ch, dur, _st in rows:
+            if ch in by_channel:
+                by_channel[ch]["count"] += 1
+                by_channel[ch]["duration_sec"] += dur
+
+        # 运行天数（用服务运行时长，至少 1 小时计）
+        days = max(uptime_seconds / 86400.0, 1.0 / 24.0)
+
+        # 用水量估算（微型潜水泵典型 1~2 L/min）
+        water_liters = round(total_dur / 60.0 * PUMP_FLOW_RATE_LPM, 2)
+
+        # 日均每路灌溉分钟数（总时长 ÷ 路数 ÷ 天数）
+        daily_avg_min_per_channel = (total_dur / 60.0) / NUM_CHANNELS / days
+
+        # 节水率：对比传统经验灌溉基线（每路每天固定时长）
+        baseline = TRADITIONAL_MINUTES_PER_DAY
+        saving = max(0.0, min(100.0, (baseline - daily_avg_min_per_channel) / baseline * 100.0))
+
+        return {
+            "total_irrigations": total_events,
+            "total_duration_sec": total_dur,
+            "total_duration_minutes": round(total_dur / 60.0, 1),
+            "by_channel": by_channel,
+            "water_usage_liters": water_liters,
+            "pump_flow_rate_lpm": PUMP_FLOW_RATE_LPM,
+            "days_running": round(days, 2),
+            "daily_avg_minutes_per_channel": round(daily_avg_min_per_channel, 2),
+            "baseline_minutes_per_day": baseline,
+            "water_saving_percent": round(saving, 1),
+            "last_event": rows[-1][2] if rows else None,
+        }
+
+
+# ============================================================
+# 预测模型（加权线性回归 + 指数平滑 + 精度自评估）
+# ============================================================
+class PredictionModel:
+    """土壤湿度预测模型 v2：
+    - 指数衰减加权回归：近期数据权重更高，捕捉真实趋势（数据点间隔 5 分钟）；
+    - 指数平滑混合：当前值与回归线按比例混合，抑制单点噪声；
+    - 留一法自评估：用历史数据回测，输出平均绝对误差（%），量化模型精度。
+    """
+
+    DECAY = 0.35         # 权重衰减系数（越大越看重近期）
+    SMOOTH_ALPHA = 0.6   # 回归线与当前值的混合系数
+
+    @classmethod
+    def weighted_fit(cls, values):
+        """加权最小二乘拟合，返回 (slope, intercept)。slope 单位为 湿度%/点（每点5分钟）。"""
+        n = len(values)
+        if n < 2:
+            return 0.0, (values[0] if values else 50.0)
+        w = [math.exp(-cls.DECAY * (n - 1 - i)) for i in range(n)]
+        wsum = sum(w)
+        xm = sum(w[i] * i for i in range(n)) / wsum
+        ym = sum(w[i] * values[i] for i in range(n)) / wsum
+        num = sum(w[i] * (i - xm) * (values[i] - ym) for i in range(n))
+        den = sum(w[i] * (i - xm) ** 2 for i in range(n))
+        slope = num / den if den else 0.0
+        intercept = ym - slope * xm
+        return slope, intercept
+
+    @classmethod
+    def predict_at(cls, values, steps_ahead):
+        """预测 steps_ahead 个点（每点 5 分钟）之后的湿度：加权回归 + 指数平滑混合。"""
+        n = len(values)
+        if n == 0:
+            return 50.0
+        slope, intercept = cls.weighted_fit(values)
+        x_next = (n - 1) + steps_ahead
+        regression = intercept + slope * x_next
+        smoothed = cls.SMOOTH_ALPHA * regression + (1.0 - cls.SMOOTH_ALPHA) * values[-1]
+        return smoothed
+
+    @classmethod
+    def self_assess(cls, values):
+        """留一法回测：依次用前 k 个点预测第 k 个点，返回平均绝对误差（%）。
+        数据点不足 5 个时返回 None（无法可靠评估）。"""
+        n = len(values)
+        if n < 5:
+            return None
+        errors = []
+        for k in range(4, n):
+            pred = cls.predict_at(values[:k], 1)
+            errors.append(abs(pred - values[k]))
+        return sum(errors) / len(errors)
 
 
 # ============================================================
@@ -119,8 +311,15 @@ class DataHub:
         }
         self._last_mqtt_seen = 0.0
         self._last_history_ts = None
-        self.history = []   # 统一时间点存储：[{timestamp, channels: {1:{...},2:{...},3:{...}}}]
+        self.history = HistoryStore()      # 历史数据（内存镜像 + SQLite 持久化）
+        self.stats = IrrigationStats(self.history.conn)   # 灌溉事件统计
+        self._pump_sessions = {}           # 泵运行会话：{channel: start_iso}
         self.weather = WeatherProvider()   # 天气感知（可选，失败自动降级）
+
+        # 启动时若模拟器泵在运行（状态恢复），以启动时刻作为会话起点
+        for i in range(1, NUM_CHANNELS + 1):
+            if self.state["channels"][i]["pump_status"]:
+                self._pump_sessions[i] = datetime.now().isoformat()
 
         self._sim_thread = threading.Thread(target=self._simulate_loop, daemon=True)
         self._sim_thread.start()
@@ -146,7 +345,23 @@ class DataHub:
             self.model.step(self.state)
             self.state["data_source"] = "simulated"
             self.state["last_update"] = datetime.now().isoformat()
+            self._sync_pump_tracking()
             self._maybe_append_history()
+
+    # ---------- 灌溉事件跟踪（统计用） ----------
+    def _sync_pump_tracking(self):
+        """泵状态变化时记录灌溉事件（off→on 记开始，on→off 记时长入库）。"""
+        for i in range(1, NUM_CHANNELS + 1):
+            ch = self.state["channels"][i]
+            if ch["pump_status"] and i not in self._pump_sessions:
+                self._pump_sessions[i] = datetime.now().isoformat()
+            elif not ch["pump_status"] and i in self._pump_sessions:
+                start_iso = self._pump_sessions.pop(i)
+                start = datetime.fromisoformat(start_iso)
+                duration = int((datetime.now() - start).total_seconds())
+                if duration >= 5:   # 忽略瞬时抖动
+                    self.stats.record_event(i, start_iso, datetime.now().isoformat(), duration)
+                    print(f"[统计] 花盆{i} 灌溉结束：{duration} 秒")
 
     # ---------- MQTT 数据写入 ----------
     def mqtt_update_channels(self, updates):
@@ -158,6 +373,7 @@ class DataHub:
             self._last_mqtt_seen = time.time()
             self.state["data_source"] = "mqtt"
             self.state["last_update"] = datetime.now().isoformat()
+            self._sync_pump_tracking()
             self._maybe_append_history()
             self._maybe_auto_irrigate_real()
 
@@ -181,13 +397,17 @@ class DataHub:
                 for i in range(1, NUM_CHANNELS + 1)
             },
         })
-        if len(self.history) > MAX_HISTORY_POINTS:
-            self.history = self.history[-MAX_HISTORY_POINTS:]
 
     def get_history(self, hours=24):
         cutoff = datetime.now() - timedelta(hours=hours)
         with self._lock:
-            points = [p for p in self.history if datetime.fromisoformat(p["timestamp"]) >= cutoff]
+            mem = self.history.points
+            if mem and datetime.fromisoformat(mem[0]["timestamp"]) <= cutoff:
+                # 内存镜像覆盖查询范围
+                points = [p for p in mem if datetime.fromisoformat(p["timestamp"]) >= cutoff]
+            else:
+                # 重启后内存不足，直接从 SQLite 查
+                points = self.history.query_since(cutoff.isoformat())
         per_channel = []
         for i in range(1, NUM_CHANNELS + 1):
             per_channel.append([
@@ -227,43 +447,41 @@ class DataHub:
                 "last_update": self.state["last_update"],
             }
 
-    # ---------- 预测（3 路，基于历史线性趋势外推） ----------
-    @staticmethod
-    def _linear_slope(values):
-        """values: 按时间顺序的数值序列；返回最小二乘斜率（每点间隔 5 分钟）。"""
-        n = len(values)
-        if n < 2:
-            return 0.0
-        xm = (n - 1) / 2.0
-        ym = sum(values) / n
-        num = sum((i - xm) * (values[i] - ym) for i in range(n))
-        den = sum((i - xm) ** 2 for i in range(n))
-        return num / den if den else 0.0
-
+    # ---------- 预测（3 路：加权回归 + 指数平滑 + 天气修正 + 自评估） ----------
     def get_prediction(self, minutes=30):
         with self._lock:
             predictions = []   # 数组，下标 0-2 对应花盆 1-3（Unity JsonUtility 兼容）
+            accuracy_by_channel = {}
+
             for i in range(1, NUM_CHANNELS + 1):
-                series = [p["channels"][i]["soil_moisture"] for p in self.history[-12:]]
-                slope_per_point = self._linear_slope(series)      # 每 5 分钟变化量
-                per_minute = slope_per_point / 5.0
+                series = [p["channels"][i]["soil_moisture"] for p in self.history.points[-12:]]
                 current = self.state["channels"][i]["soil_moisture"]
                 pumping = self.state["channels"][i]["pump_status"]
 
                 ch_preds = []
                 for m in range(0, minutes + 1, 5):
-                    # 天气修正：降雨概率高 → 蒸发减缓（空气湿度大），最多减缓 60%
+                    steps = max(1, int(round(m / 5.0)))
+
+                    # 1) 趋势预测：加权回归 + 指数平滑
+                    trend = PredictionModel.predict_at(series, steps)
+
+                    # 2) 天气修正：降雨概率高 → 蒸发减缓（下降量打折，最多 60%）
                     rain_factor = 1.0
                     if self.weather is not None and self.weather.enabled:
                         p = self.weather.rain_probability_at(m)
                         if p is not None and p > 0:
                             rain_factor = max(0.4, 1.0 - 0.6 * p / 100.0)
 
+                    # 3) 灌溉修正：泵运行中叠加上升效应（前 2 小时递减）
                     if pumping and m < 120:
-                        delta = per_minute * m + 2.0 * (1 - m / 120) * (m / 60)
+                        predicted = trend + 2.0 * (1 - m / 120) * (m / 60)
                     else:
-                        delta = per_minute * rain_factor * m
-                    predicted = _clamp(current + delta, SOIL_MOISTURE_MIN, SOIL_MOISTURE_MAX)
+                        delta = trend - current
+                        if delta < 0:
+                            delta *= rain_factor          # 下降趋势按降雨打折
+                        predicted = current + delta
+
+                    predicted = _clamp(predicted, SOIL_MOISTURE_MIN, SOIL_MOISTURE_MAX)
                     ch_preds.append({
                         "future_time": (datetime.now() + timedelta(minutes=m)).isoformat(),
                         "minutes_ahead": m,
@@ -272,16 +490,31 @@ class DataHub:
                     })
                 predictions.append(ch_preds)
 
+                # 4) 精度自评估（留一法回测）
+                mae = PredictionModel.self_assess(series)
+                accuracy_by_channel[str(i)] = round(mae, 2) if mae is not None else None
+
             weather_forecast = None
             if self.weather is not None and self.weather.enabled:
                 weather_forecast = self.weather.get_forecast()
+
+            # 整体自评估（三路有效值的平均）
+            valid_maes = [v for v in accuracy_by_channel.values() if v is not None]
+            overall_mae = round(sum(valid_maes) / len(valid_maes), 2) if valid_maes else None
+
+            algo = "加权线性回归+指数平滑预测模型"
+            if overall_mae is not None:
+                algo += f"（自评估误差 ±{overall_mae}%）"
+            if weather_forecast:
+                algo += " + OpenClaw 天气感知"
 
             return {
                 "predictions": predictions,
                 "current_conditions": self.get_realtime_data(),
                 "prediction_horizon_minutes": minutes,
-                "algorithm_info": "基于历史趋势的土壤湿度线性回归预测模型"
-                                  + ("（融合 OpenClaw 天气感知）" if weather_forecast else ""),
+                "algorithm_info": algo,
+                "prediction_accuracy_mae_percent": overall_mae,
+                "accuracy_by_channel": accuracy_by_channel,
                 "weather_forecast": weather_forecast,
             }
 
@@ -318,6 +551,7 @@ class DataHub:
                         ch["pump_status"] = False
                         ch["irrigation_duration"] = 0
                 self.state["last_update"] = datetime.now().isoformat()
+                self._sync_pump_tracking()
             msg = ("灌溉已启动（模拟）" if action == "start" else "灌溉已停止（模拟）")
         else:
             # 真实模式：MQTT 下发 + 乐观更新
@@ -334,6 +568,7 @@ class DataHub:
                         ch["pump_status"] = False
                         ch["irrigation_duration"] = 0
                 self.state["last_update"] = datetime.now().isoformat()
+                self._sync_pump_tracking()
             msg = ("灌溉指令已下发（MQTT）" if action == "start" else "停止指令已下发（MQTT）")
 
         result = {
@@ -358,6 +593,11 @@ class DataHub:
                 ch["pump_status"] = True
                 ch["irrigation_duration"] = 0
                 self.state["last_update"] = datetime.now().isoformat()
+                self._sync_pump_tracking()
+
+    # ---------- 灌溉统计 ----------
+    def get_irrigation_stats(self):
+        return self.stats.get_stats(int(time.time() - START_TIME))
 
 
 # ============================================================
@@ -648,7 +888,9 @@ def get_system_status():
         return jsonify({
             "system_running": True,
             "uptime_seconds": int(time.time() - START_TIME),
-            "data_points_collected": len(hub.history),
+            "data_points_collected": len(hub.history.points),
+            "history_db": HISTORY_DB_PATH,
+            "irrigation_stats": hub.get_irrigation_stats(),
             "channel_count": NUM_CHANNELS,
             "server_time": datetime.now().isoformat(),
             "api_version": "3.0.0",
@@ -672,6 +914,15 @@ def get_weather():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/irrigation-stats', methods=['GET'])
+def get_irrigation_stats():
+    """灌溉统计接口：次数/时长/用水量/节水率（比赛工程效果数据）。"""
+    try:
+        return jsonify(hub.get_irrigation_stats())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/', methods=['GET'])
 def api_info():
     return jsonify({
@@ -679,10 +930,12 @@ def api_info():
         "version": "3.0.0",
         "endpoints": {
             "GET /api/realtime-data": "获取3路实时传感器数据",
-            "GET /api/historical-data?hours=24": "获取3路历史数据",
-            "GET /api/prediction?minutes=30": "获取3路土壤湿度预测",
+            "GET /api/historical-data?hours=24": "获取3路历史数据（SQLite持久化）",
+            "GET /api/prediction?minutes=30": "获取3路土壤湿度预测（加权回归+自评估）",
             "POST /api/control-pump": "控制水泵灌溉（channel:1-3/all）",
             "GET /api/system-status": "获取系统运行状态",
+            "GET /api/weather": "天气感知（OpenClaw AI）",
+            "GET /api/irrigation-stats": "灌溉统计（次数/用水量/节水率）",
         },
         "data_format": "JSON",
         "data_source_mode": DATA_SOURCE,
