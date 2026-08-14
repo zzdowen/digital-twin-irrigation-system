@@ -125,6 +125,12 @@ public class IrrigationApiClient : MonoBehaviour
         StartCoroutine(RequestJson<WeatherStatus>(ApiConfig.WeatherUrl, onSuccess, onError));
     }
 
+    /// <summary>获取灌溉统计（GET /api/irrigation-stats，次数/用水量/节水率）</summary>
+    public void GetIrrigationStats(Action<IrrigationStats> onSuccess, Action<string> onError)
+    {
+        StartCoroutine(RequestJson<IrrigationStats>(ApiConfig.IrrigationStatsUrl, onSuccess, onError));
+    }
+
     /// <summary>
     /// 控制水泵（POST /api/control-pump，v3.0.0 三路）。
     /// </summary>

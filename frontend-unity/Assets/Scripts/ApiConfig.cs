@@ -28,6 +28,7 @@ public static class ApiConfig
     public const string ControlPumpPath    = "/api/control-pump";    // 水泵控制 POST
     public const string SystemStatusPath   = "/api/system-status";   // 系统状态 GET
     public const string WeatherPath        = "/api/weather";         // 天气感知 GET（可选）
+    public const string IrrigationStatsPath = "/api/irrigation-stats"; // 灌溉统计 GET
 
     // ------------------------------------------------------------------
     // 默认请求参数
@@ -46,6 +47,7 @@ public static class ApiConfig
     public static string ControlPumpUrl    => ServerUrl + ControlPumpPath;
     public static string SystemStatusUrl   => ServerUrl + SystemStatusPath;
     public static string WeatherUrl        => ServerUrl + WeatherPath;
+    public static string IrrigationStatsUrl => ServerUrl + IrrigationStatsPath;
 
     /// <summary>拼接 GET 查询参数，例如 WithQuery(HistoricalDataUrl, "hours=24")</summary>
     public static string WithQuery(string url, string query)

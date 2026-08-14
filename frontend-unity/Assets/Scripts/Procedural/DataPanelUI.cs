@@ -31,6 +31,7 @@ public class DataPanelUI : MonoBehaviour
     private Text[] _channelPumpTexts = new Text[3];
     private UILineChart _chart;
     private Text _chartLegend;
+    private Text _statsText;       // 灌溉统计（次数/用水量/节水率）
     private Text _weatherDetail;
     private Text _msgText;
 
@@ -53,6 +54,7 @@ public class DataPanelUI : MonoBehaviour
 
         StartCoroutine(ChartLoop());
         StartCoroutine(WeatherTextLoop());
+        StartCoroutine(StatsLoop());
     }
 
     private void OnDestroy()
@@ -161,6 +163,30 @@ public class DataPanelUI : MonoBehaviour
             RefreshWeatherText();
             yield return new WaitForSeconds(5f);
         }
+    }
+
+    private IEnumerator StatsLoop()
+    {
+        yield return new WaitForSeconds(3f);
+        while (true)
+        {
+            FetchStats();
+            yield return new WaitForSeconds(60f);
+        }
+    }
+
+    private void FetchStats()
+    {
+        IrrigationApiClient.GetOrCreate().GetIrrigationStats(stats =>
+        {
+            if (stats == null || _statsText == null) return;
+            _statsText.text = string.Format(
+                "💧 累计灌溉 {0} 次 ｜ 用水 {1:F1} 升 ｜ 节水率 {2:F1}%（对比传统 {3:F0} 分钟/天）",
+                stats.total_irrigations,
+                stats.water_usage_liters,
+                stats.water_saving_percent,
+                stats.baseline_minutes_per_day);
+        }, err => Debug.LogWarning("[UI] 灌溉统计获取失败: " + err));
     }
 
     private void RefreshWeatherText()
@@ -308,15 +334,19 @@ public class DataPanelUI : MonoBehaviour
                                   new Vector2(0f, 0.83f), new Vector2(1f, 0.90f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
 
         // 图表区
-        RectTransform chartArea = CreateRect("Chart", panel, new Vector2(0f, 0.36f), new Vector2(1f, 0.83f),
+        RectTransform chartArea = CreateRect("Chart", panel, new Vector2(0f, 0.42f), new Vector2(1f, 0.83f),
                                              new Vector2(24f, 0f), new Vector2(-24f, 0f));
         CreatePanel(chartArea, new Color(0.07f, 0.08f, 0.11f, 0.9f));
         _chart = chartArea.gameObject.AddComponent<UILineChart>();
         _chart.SetData(new[] { new[] { 50f, 50f, 50f, 50f } }, 0f, 100f);
 
+        // 灌溉统计（节水数据，比赛工程效果）
+        _statsText = CreateText("IrrigationStats", panel, "💧 灌溉统计加载中...", 22, new Color(0.55f, 0.9f, 0.65f),
+                                new Vector2(0f, 0.17f), new Vector2(1f, 0.40f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
+
         // 天气详情
         _weatherDetail = CreateText("WeatherDetail", panel, "天气数据加载中...", 22, Color.white,
-                                    new Vector2(0f, 0f), new Vector2(1f, 0.34f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
+                                    new Vector2(0f, 0f), new Vector2(1f, 0.15f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
     }
 
     private void BuildBottomBar(RectTransform bar)

@@ -108,6 +108,24 @@ public class SystemStatus
     public WeatherStatus weather;          // 天气状态（可能为 null）
 }
 
+/// <summary>灌溉统计（GET /api/irrigation-stats 响应体，v3.1.0）
+/// 注意：by_channel 为动态 key 对象（{"1":{...}}），JsonUtility 无法解析，Unity 端忽略之，
+/// 其余顶层字段正常解析。</summary>
+[Serializable]
+public class IrrigationStats
+{
+    public int    total_irrigations;              // 总灌溉次数
+    public int    total_duration_sec;             // 总灌溉时长（秒）
+    public float  total_duration_minutes;         // 总灌溉时长（分钟）
+    public float  water_usage_liters;             // 估算用水量（升）
+    public float  pump_flow_rate_lpm;             // 水泵流量（升/分钟）
+    public float  days_running;                   // 运行天数
+    public float  daily_avg_minutes_per_channel;  // 每路日均灌溉分钟数
+    public float  baseline_minutes_per_day;       // 传统灌溉基线（分钟/天）
+    public float  water_saving_percent;           // 节水率（%）
+    public string last_event;                     // 最近一次灌溉事件时间
+}
+
 /// <summary>水泵控制请求（POST /api/control-pump 请求体，v3.0.0）</summary>
 [Serializable]
 public class ControlRequest
