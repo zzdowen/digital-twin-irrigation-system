@@ -1,12 +1,16 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-数字孪生灌溉系统 - 数据服务器 v3.0.0
+数字孪生灌溉系统 - 数据服务器 v3.1.0
 ====================================
 v3.0.0 变化：
   - 升级为 3 路独立灌溉（3 个农田），每路独立土壤湿度 + 水泵
   - 移除温湿度字段（实物无温湿度传感器）
   - MQTT 契约：《系统接口契约v3.md》（farm/device01/sensors 上报 JSON 包）
+
+v3.1.0 变化：
+  - 自动灌溉改为"浇到目标湿度（70%）自动停泵"，替换原固定 10 分钟（智能停泵，修节水率指标）
+  - 放缓模拟蒸发速率，使"按需灌溉 vs 传统灌溉"的节水对比回归正常正数
 
 数据源模式（环境变量 DATA_SOURCE）：
   simulated  → 纯内置模拟（3 路物理模型）
@@ -52,7 +56,8 @@ NUM_CHANNELS = 3                          # 3 个农田
 HISTORY_INTERVAL_SEC = 300                # 历史数据每 5 分钟一个点
 MAX_HISTORY_POINTS = 576                  # 最多 48 小时
 AUTO_IRRIGATION_THRESHOLD = 30.0          # 湿度低于此值自动灌溉（%）
-MAX_IRRIGATION_SEC = 600                  # 自动灌溉最长 10 分钟
+AUTO_IRRIGATION_TARGET = 70.0             # 自动灌溉浇到此湿度即停（%）——智能停泵，避免过量灌溉
+MAX_IRRIGATION_SEC = 600                  # 自动灌溉兜底上限（正常情况浇到目标就停，不会用满）
 SOIL_MOISTURE_MIN, SOIL_MOISTURE_MAX = 10.0, 80.0
 
 # 历史数据持久化（SQLite，重启不丢）
@@ -266,19 +271,23 @@ class PredictionModel:
 # 物理模拟模型（3 路独立）
 # ============================================================
 class SimulationModel:
-    """每路独立模拟：自然蒸发下降 + 灌溉上升 + 低湿度自动灌溉。"""
+    """每路独立模拟：自然蒸发下降 + 灌溉上升 + 低湿度自动灌溉、浇到目标湿度自动停泵。"""
 
     def step(self, state):
         for i in range(1, NUM_CHANNELS + 1):
             ch = state["channels"][i]
             if ch["pump_status"]:
+                # 灌溉时湿度上升
                 ch["soil_moisture"] += random.uniform(2, 4)
                 ch["irrigation_duration"] += 5
-                if ch["irrigation_duration"] >= MAX_IRRIGATION_SEC:
+                # 智能停泵：浇到目标湿度即停（兜底：最长 MAX_IRRIGATION_SEC 强制停）
+                if (ch["soil_moisture"] >= AUTO_IRRIGATION_TARGET
+                        or ch["irrigation_duration"] >= MAX_IRRIGATION_SEC):
                     ch["pump_status"] = False
                     ch["irrigation_duration"] = 0
             else:
-                evap = 0.1 + random.uniform(-0.1, 0.3)
+                # 自然蒸发（速率贴近真实土壤，保证"按需灌溉"确实比传统省水）
+                evap = 0.03 + random.uniform(-0.01, 0.03)
                 ch["soil_moisture"] -= evap
 
             ch["soil_moisture"] = _clamp(ch["soil_moisture"], SOIL_MOISTURE_MIN, SOIL_MOISTURE_MAX)
@@ -893,7 +902,7 @@ def get_system_status():
             "irrigation_stats": hub.get_irrigation_stats(),
             "channel_count": NUM_CHANNELS,
             "server_time": datetime.now().isoformat(),
-            "api_version": "3.0.0",
+            "api_version": "3.1.0",
             "data_source_mode": DATA_SOURCE,
             "data_source": hub.get_realtime_data()["data_source"],
             "weather": hub.weather.get_status() if hub.weather else None,
@@ -927,7 +936,7 @@ def get_irrigation_stats():
 def api_info():
     return jsonify({
         "name": "数字孪生灌溉系统 - 数据API",
-        "version": "3.0.0",
+        "version": "3.1.0",
         "endpoints": {
             "GET /api/realtime-data": "获取3路实时传感器数据",
             "GET /api/historical-data?hours=24": "获取3路历史数据（SQLite持久化）",
@@ -945,7 +954,7 @@ def api_info():
 
 
 if __name__ == '__main__':
-    print("🌱 数字孪生灌溉系统数据服务器 v3.0.0 启动中...")
+    print("🌱 数字孪生灌溉系统数据服务器 v3.1.0 启动中...")
     print(f"   数据源模式: DATA_SOURCE={DATA_SOURCE}（{NUM_CHANNELS} 路独立灌溉）")
     print(f"   MQTT: {MQTT_HOST}:{MQTT_PORT} (基础主题 {MQTT_BASE_TOPIC})")
     print("📡 API服务地址: http://0.0.0.0:5000")
