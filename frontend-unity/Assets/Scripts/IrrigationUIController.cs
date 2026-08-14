@@ -1,11 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 三路 UI 控制器 v3.0.0：把 3 路实时数据绑定到 UI 控件，并通过 IrrigationApiClient 控制各花盆水泵。
+/// 三路 UI 控制器 v3.0.0：把 3 路实时数据绑定到 UI 控件，并通过 IrrigationApiClient 控制各农田水泵。
 ///
 /// 挂载方式：挂到 Canvas 下的空物体，在 Inspector 中把对应控件拖到槽位（留空自动跳过）。
-/// 每路控件组（湿度文本/进度条/泵状态/时长/启停按钮）通过 ChannelUIBinding 数组配置（下标 0-2 = 花盆 1-3）。
+/// 每路控件组（湿度文本/进度条/泵状态/时长/启停按钮）通过 ChannelUIBinding 数组配置（下标 0-2 = 农田 1-3）。
 ///
 /// 说明：
 /// 1. 使用 UnityEngine.UI.Text，开箱可编译；换 TextMeshPro 只需改字段类型并加 using TMPro;。
@@ -34,7 +34,7 @@ public class IrrigationUIController : MonoBehaviour
     [Tooltip("留空时自动在场景中查找 RealtimeDataPoller")]
     [SerializeField] private RealtimeDataPoller poller;
 
-    [Header("三路 UI（下标 0-2 = 花盆 1-3）")]
+    [Header("三路 UI（下标 0-2 = 农田 1-3）")]
     [SerializeField] private ChannelUIBinding[] channelUIs = new ChannelUIBinding[3];
 
     [Header("全局信息")]
@@ -108,7 +108,7 @@ public class IrrigationUIController : MonoBehaviour
                 ChannelData ch = data.channels[i];
                 if (ui == null || ch == null) continue;
 
-                SetText(ui.soilMoistureText, string.Format("花盆{0} 湿度：{1:F1} %", i + 1, ch.soil_moisture));
+                SetText(ui.soilMoistureText, string.Format("农田{0} 湿度：{1:F1} %", i + 1, ch.soil_moisture));
                 if (ui.soilMoistureSlider != null)
                     ui.soilMoistureSlider.value = Mathf.Clamp01(ch.soil_moisture / 100f);
 
@@ -189,7 +189,7 @@ public class IrrigationUIController : MonoBehaviour
     private void OnStartPump(int channel)
     {
         int minutes = durationSlider != null ? Mathf.RoundToInt(durationSlider.value) : 5;
-        string target = channel == 0 ? "全部花盆" : ("花盆" + channel);
+        string target = channel == 0 ? "全部农田" : ("农田" + channel);
         SetMessage(string.Format("正在启动灌溉（{0}，{1} 分钟）...", target, minutes));
 
         IrrigationApiClient.GetOrCreate().ControlPump("start", channel, minutes,
@@ -199,7 +199,7 @@ public class IrrigationUIController : MonoBehaviour
 
     private void OnStopPump(int channel)
     {
-        string target = channel == 0 ? "全部花盆" : ("花盆" + channel);
+        string target = channel == 0 ? "全部农田" : ("农田" + channel);
         SetMessage("正在停止灌溉（" + target + "）...");
 
         IrrigationApiClient.GetOrCreate().ControlPump("stop", channel, 0,

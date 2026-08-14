@@ -1,10 +1,10 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 数字孪生灌溉系统 - 数据服务器 v3.0.0
 ====================================
 v3.0.0 变化：
-  - 升级为 3 路独立灌溉（3 个花盆），每路独立土壤湿度 + 水泵
+  - 升级为 3 路独立灌溉（3 个农田），每路独立土壤湿度 + 水泵
   - 移除温湿度字段（实物无温湿度传感器）
   - MQTT 契约：《系统接口契约v3.md》（farm/device01/sensors 上报 JSON 包）
 
@@ -48,7 +48,7 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_STALE_TIMEOUT = int(os.environ.get("MQTT_STALE_TIMEOUT", "30"))
 MQTT_BASE_TOPIC = os.environ.get("MQTT_BASE_TOPIC", "farm/device01")
 
-NUM_CHANNELS = 3                          # 3 个花盆
+NUM_CHANNELS = 3                          # 3 个农田
 HISTORY_INTERVAL_SEC = 300                # 历史数据每 5 分钟一个点
 MAX_HISTORY_POINTS = 576                  # 最多 48 小时
 AUTO_IRRIGATION_THRESHOLD = 30.0          # 湿度低于此值自动灌溉（%）
@@ -361,7 +361,7 @@ class DataHub:
                 duration = int((datetime.now() - start).total_seconds())
                 if duration >= 5:   # 忽略瞬时抖动
                     self.stats.record_event(i, start_iso, datetime.now().isoformat(), duration)
-                    print(f"[统计] 花盆{i} 灌溉结束：{duration} 秒")
+                    print(f"[统计] 农田{i} 灌溉结束：{duration} 秒")
 
     # ---------- MQTT 数据写入 ----------
     def mqtt_update_channels(self, updates):
@@ -419,7 +419,7 @@ class DataHub:
                 for p in points
             ])
         return {
-            "channels": per_channel,   # 数组，下标 0-2 对应花盆 1-3（Unity JsonUtility 兼容）
+            "channels": per_channel,   # 数组，下标 0-2 对应农田 1-3（Unity JsonUtility 兼容）
             "total_points": len(points),
             "query_range_hours": hours,
         }
@@ -450,7 +450,7 @@ class DataHub:
     # ---------- 预测（3 路：加权回归 + 指数平滑 + 天气修正 + 自评估） ----------
     def get_prediction(self, minutes=30):
         with self._lock:
-            predictions = []   # 数组，下标 0-2 对应花盆 1-3（Unity JsonUtility 兼容）
+            predictions = []   # 数组，下标 0-2 对应农田 1-3（Unity JsonUtility 兼容）
             accuracy_by_channel = {}
 
             for i in range(1, NUM_CHANNELS + 1):
@@ -530,7 +530,7 @@ class DataHub:
         if action not in ("start", "stop"):
             return {"status": "error", "message": "无效的控制命令，action 应为 start/stop/auto"}
 
-        # 解析目标花盆：1-3 或 "all"
+        # 解析目标农田：1-3 或 "all"
         if channel in ("all", 0, "0"):
             targets = list(range(1, NUM_CHANNELS + 1))
         else:

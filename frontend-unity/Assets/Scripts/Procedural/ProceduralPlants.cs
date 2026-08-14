@@ -1,47 +1,53 @@
 using UnityEngine;
 
 /// <summary>
-/// 程序化作物（小白菜风格低模）：中心茎 + 多层展开叶片 + 嫩芯。
-/// 无贴图依赖，纯几何体组合，配合 ToonLit 卡通着色器呈现动漫效果。
+/// 程序化作物 v4.0.0（小白菜风格低模）：中心茎 + 多层展开叶片 + 嫩芯。
+/// 农田模式：沿 3 条种植垄按 3 行 × 4 列成排种植（每块农田 12 株），
+/// 株间带随机抖动，形成整齐又不呆板的田间效果。无贴图依赖，纯几何体组合。
 /// </summary>
 public class ProceduralPlants : MonoBehaviour
 {
-    [Header("每盆作物数量")]
-    [SerializeField] private int plantCount = 4;
-    [Header("植株高度（米）")]
-    [SerializeField] private float plantHeight = 0.3f;
-    [Header("随机偏移半径")]
-    [SerializeField] private float scatterRadius = 0.24f;
+    [Header("每块农田的行列布局")]
+    [SerializeField] private int rows = 3;           // 行数（沿 z 方向，对应 3 条垄）
+    [SerializeField] private int cols = 4;           // 列数（沿 x 方向）
+    [SerializeField] private float rowSpacing = 0.6f;   // 行距（z）
+    [SerializeField] private float colSpacing = 0.75f;  // 株距（x）
+    [SerializeField] private float jitter = 0.1f;       // 随机抖动幅度
+
+    [Header("植株尺寸（米）")]
+    [SerializeField] private float plantHeight = 0.32f;
 
     private static System.Random _rng = new System.Random(20260814);
 
-    /// <summary>在挂点下生成一盆作物</summary>
-    public void Build(Transform plantAnchor, int planterIndex)
+    /// <summary>在挂点下按 3 行 × 4 列生成一田作物</summary>
+    public void Build(Transform plantAnchor, int fieldIndex)
     {
         if (plantAnchor == null) return;
 
-        for (int p = 0; p < plantCount; p++)
+        int p = 0;
+        for (int r = 0; r < rows; r++)
         {
-            BuildOne(plantAnchor, p, planterIndex);
+            float z = (r - (rows - 1) * 0.5f) * rowSpacing;   // 居中对称
+            for (int c = 0; c < cols; c++)
+            {
+                float x = (c - (cols - 1) * 0.5f) * colSpacing;
+                float jx = (float)(_rng.NextDouble() * 2.0 - 1.0) * jitter;
+                float jz = (float)(_rng.NextDouble() * 2.0 - 1.0) * jitter;
+                Vector3 localPos = new Vector3(x + jx, 0f, z + jz);
+                BuildOne(plantAnchor, localPos, fieldIndex, p + 1);
+                p++;
+            }
         }
     }
 
-    private void BuildOne(Transform anchor, int index, int planterIndex)
+    private void BuildOne(Transform anchor, Vector3 localPos, int fieldIndex, int index)
     {
-        // 随机散布位置（用固定种子保证每次生成一致，便于调试）
-        float angle = (float)_rng.NextDouble() * Mathf.PI * 2f;
-        float dist = (float)_rng.NextDouble() * scatterRadius;
-        Vector3 localPos = new Vector3(
-            Mathf.Cos(angle) * dist,
-            0f,
-            Mathf.Sin(angle) * dist);
-
-        Transform plant = new GameObject(string.Format("Crop_{0}_{1}", planterIndex, index + 1)).transform;
+        Transform plant = new GameObject(string.Format("Crop_{0}_{1}", fieldIndex, index)).transform;
         plant.SetParent(anchor, false);
         plant.localPosition = localPos;
 
         float stemH = plantHeight * 0.4f;
-        float stemW = 0.035f;
+        float stemW = 0.04f;
 
         // 茎
         ProceduralStyle.CreatePart("Stem", plant, PrimitiveType.Cylinder,

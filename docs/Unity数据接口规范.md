@@ -1,4 +1,4 @@
-# 数字孪生灌溉系统 - Unity 数据接口规范 v3.0.0
+﻿# 数字孪生灌溉系统 - Unity 数据接口规范 v3.0.0
 
 ## 📡 接口概览
 
@@ -6,9 +6,9 @@
 **数据格式**: JSON  
 **编码**: UTF-8  
 **API版本**: 3.0.0  
-**通道模型**: 3 路独立灌溉（花盆 1/2/3），无温湿度字段
+**通道模型**: 3 路独立灌溉（农田 1/2/3），无温湿度字段
 
-> 完整契约见《系统接口契约v3.md》。所有数组下标 0/1/2 分别对应花盆 1/2/3。
+> 完整契约见《系统接口契约v3.md》。所有数组下标 0/1/2 分别对应农田 1/2/3。
 
 ---
 
@@ -35,8 +35,8 @@ GET /api/realtime-data
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `channels` | array | 3 路数据，下标 0-2 = 花盆 1-3 |
-| `channels[].channel` | int | 花盆编号 1/2/3 |
+| `channels` | array | 3 路数据，下标 0-2 = 农田 1-3 |
+| `channels[].channel` | int | 农田编号 1/2/3 |
 | `channels[].soil_moisture` | float | 土壤湿度 %（10-80 正常范围） |
 | `channels[].pump_status` | bool | 水泵是否运行 |
 | `channels[].irrigation_duration` | int | 灌溉已持续秒数 |
@@ -67,7 +67,7 @@ GET /api/historical-data?hours=24
 }
 ```
 
-- `channels` 为嵌套数组：`channels[0]` = 花盆1 的时间序列（每 5 分钟一个点）
+- `channels` 为嵌套数组：`channels[0]` = 农田1 的时间序列（每 5 分钟一个点）
 - Unity 端对应 `HistoricalDataPoint[][] channels`
 
 ---
@@ -91,7 +91,7 @@ GET /api/prediction?minutes=30
 }
 ```
 
-- `predictions` 为嵌套数组：下标 0-2 = 花盆 1-3，每项为预测点数组（每 5 分钟一个点）
+- `predictions` 为嵌套数组：下标 0-2 = 农田 1-3，每项为预测点数组（每 5 分钟一个点）
 - 预测范围限制：5~180 分钟
 - `confidence` 随预测时间递减（1.0 → 0.7）
 
@@ -110,7 +110,7 @@ POST /api/control-pump
 
 | 字段 | 必填 | 取值 | 说明 |
 |------|------|------|------|
-| `channel` | 否 | 1/2/3/0/"all" | 目标花盆；缺省默认 1；0 或 "all" = 全部 |
+| `channel` | 否 | 1/2/3/0/"all" | 目标农田；缺省默认 1；0 或 "all" = 全部 |
 | `action` | 是 | start/stop/auto | 控制命令 |
 | `duration_minutes` | 否 | 1-30 | 仅 start 有效 |
 
@@ -121,7 +121,7 @@ POST /api/control-pump
 
 ### 调用示例
 ```bash
-# 启动花盆2 灌溉 5 分钟
+# 启动农田2 灌溉 5 分钟
 curl -X POST http://localhost:5000/api/control-pump \
   -H "Content-Type: application/json" \
   -d '{"channel": 2, "action": "start", "duration_minutes": 5}'

@@ -3,14 +3,15 @@ using UnityEngine.UI;
 using System.Collections;
 
 /// <summary>
-/// 程序化数据面板 v3.0.0：代码创建 Canvas UI，无需手工搭建。
-/// 面板内容：
-///  - 顶部状态条：数据源 / 连接状态 / 平均湿度 / 天气摘要
-///  - 左侧：3 路湿度卡片（数值 + 进度条 + 泵状态 + 启停按钮）
-///  - 右侧：3 路灌溉预测曲线（未来 60 分钟）+ 天气详情
-///  - 底部：全局控制（全部启动 / 全部停止 / 自动模式）+ 操作提示
+/// 程序化数据面板 v4.0.0（玻璃风·紧凑版）：代码创建 Canvas UI，无需手工搭建。
+/// 相比 v3 大幅缩小占用面积并提高透明度，把屏幕中央留给 3D 场景：
+///  - 顶部细状态条：数据源 / 连接状态 / 平均湿度 / 天气摘要 / 收起按钮
+///  - 左上：3 张农田卡片（数值 + 进度条 + 泵状态 + 启停按钮），300px 宽
+///  - 右上：3 路灌溉预测曲线（未来 60 分钟）+ 灌溉统计 + 天气详情
+///  - 底部细控制栏：全部灌溉 / 全部停止 / 自动模式 + 操作提示
+///  - 「收起 ▲」按钮可一键隐藏/展开除顶栏外的全部面板（淡入淡出）
 ///
-/// 中文字体运行时从操作系统加载（微软雅黑等），无字体资源依赖。
+/// 面板为运行时生成的圆角玻璃材质（半透明 + 淡蓝描边），中文字体从系统加载。
 /// </summary>
 public class DataPanelUI : MonoBehaviour
 {
@@ -26,6 +27,7 @@ public class DataPanelUI : MonoBehaviour
     private Text _statusText;                 // 数据源/连接
     private Text _avgText;                    // 平均湿度
     private Text _weatherText;                // 天气摘要
+    private Text[] _channelTitleTexts = new Text[3];
     private Text[] _channelMoistureTexts = new Text[3];
     private Image[] _channelBarFills = new Image[3];
     private Text[] _channelPumpTexts = new Text[3];
@@ -34,6 +36,14 @@ public class DataPanelUI : MonoBehaviour
     private Text _statsText;       // 灌溉统计（次数/用水量/节水率）
     private Text _weatherDetail;
     private Text _msgText;
+
+    private CanvasGroup _contentGroup;   // 可收起的内容容器（卡片/图表/底栏）
+    private Text _collapseLabel;
+    private bool _contentVisible = true;
+    private Coroutine _fadeRoutine;
+
+    private string _lastDataSource = "模拟数据";
+    private bool _isOnline;
 
     private static Font _font;
 
@@ -75,20 +85,27 @@ public class DataPanelUI : MonoBehaviour
             for (int i = 0; i < 3 && i < data.channels.Length; i++)
             {
                 ChannelData ch = data.channels[i];
+                Color mc = MoistureColor(ch.soil_moisture);
+
+                if (_channelTitleTexts[i] != null)
+                {
+                    _channelTitleTexts[i].text = string.Format("● 农田 {0}", i + 1);
+                    _channelTitleTexts[i].color = mc;
+                }
                 if (_channelMoistureTexts[i] != null)
                 {
-                    _channelMoistureTexts[i].text = string.Format("湿度 {0:F1}%", ch.soil_moisture);
-                    _channelMoistureTexts[i].color = MoistureColor(ch.soil_moisture);
+                    _channelMoistureTexts[i].text = string.Format("{0:F1}%", ch.soil_moisture);
+                    _channelMoistureTexts[i].color = mc;
                 }
-                SetBarRatio(_channelBarFills[i], ch.soil_moisture / 100f, MoistureColor(ch.soil_moisture));
+                UIGlass.SetBarRatio(_channelBarFills[i], ch.soil_moisture / 100f, mc);
                 if (_channelPumpTexts[i] != null)
                 {
                     _channelPumpTexts[i].text = ch.pump_status
-                        ? string.Format("💧 灌溉中 · {0}s", ch.irrigation_duration)
-                        : "⏸ 未灌溉";
+                        ? string.Format("💧 灌溉中 {0}s", ch.irrigation_duration)
+                        : "⏸ 待机";
                     _channelPumpTexts[i].color = ch.pump_status
-                        ? new Color(0.35f, 0.85f, 1f)
-                        : new Color(0.75f, 0.75f, 0.75f);
+                        ? new Color(0.40f, 0.85f, 1f)
+                        : new Color(0.72f, 0.74f, 0.78f);
                 }
             }
         }
@@ -97,18 +114,23 @@ public class DataPanelUI : MonoBehaviour
         {
             _avgText.text = string.Format("平均湿度 {0:F1}%", data.soil_moisture_avg);
         }
-        if (_statusText != null)
-        {
-            _statusText.text = string.Format("数据源：{0}",
-                data.data_source == "mqtt" ? "真实设备 (MQTT)" : "模拟数据");
-        }
+        _lastDataSource = data.data_source == "mqtt" ? "真实设备 (MQTT)" : "模拟数据";
+        RefreshStatus();
     }
 
     private void OnConnectionChanged(bool online)
     {
+        _isOnline = online;
+        RefreshStatus();
+    }
+
+    private void RefreshStatus()
+    {
         if (_statusText != null)
         {
-            _statusText.text += online ? " ｜ 服务器在线" : " ｜ 服务器离线";
+            _statusText.text = string.Format("数据源：{0} ｜ {1}", _lastDataSource,
+                _isOnline ? "服务器在线" : "服务器离线");
+            _statusText.color = _isOnline ? new Color(0.55f, 0.9f, 0.62f) : new Color(0.95f, 0.55f, 0.5f);
         }
     }
 
@@ -149,8 +171,8 @@ public class DataPanelUI : MonoBehaviour
             if (_chartLegend != null)
             {
                 _chartLegend.text = data.algorithm_info != null
-                    ? string.Format("●花盆1  ●花盆2  ●花盆3　|　{0}", data.algorithm_info)
-                    : "●花盆1  ●花盆2  ●花盆3";
+                    ? string.Format("●农田1  ●农田2  ●农田3　|　{0}", data.algorithm_info)
+                    : "●农田1  ●农田2  ●农田3";
             }
         }, err => Debug.LogWarning("[UI] 预测获取失败: " + err));
     }
@@ -181,7 +203,7 @@ public class DataPanelUI : MonoBehaviour
         {
             if (stats == null || _statsText == null) return;
             _statsText.text = string.Format(
-                "💧 累计灌溉 {0} 次 ｜ 用水 {1:F1} 升 ｜ 节水率 {2:F1}%（对比传统 {3:F0} 分钟/天）",
+                "💧 累计灌溉 {0} 次 ｜ 用水 {1:F1} 升 ｜ 节水率 {2:F1}%（基线 {3:F0} 分钟/天）",
                 stats.total_irrigations,
                 stats.water_usage_liters,
                 stats.water_saving_percent,
@@ -196,7 +218,7 @@ public class DataPanelUI : MonoBehaviour
         if (w == null)
         {
             SetTextSafe(_weatherText, "天气：加载中...");
-            SetTextSafe(_weatherDetail, "天气数据不可用（服务器未开启 OpenClaw 天气感知）");
+            SetTextSafe(_weatherDetail, "天气数据不可用（服务器未开启天气感知）");
             return;
         }
         SetTextSafe(_weatherText, string.Format("天气：{0} {1}℃ 降雨{2:F0}%",
@@ -208,7 +230,7 @@ public class DataPanelUI : MonoBehaviour
     // ==================== 按钮 ====================
     private void StartPump(int channel)
     {
-        string target = channel == 0 ? "全部花盆" : string.Format("花盆{0}", channel);
+        string target = channel == 0 ? "全部农田" : string.Format("农田{0}", channel);
         SetMessage(string.Format("正在启动灌溉（{0}，{1} 分钟）...", target, defaultDurationMinutes));
         IrrigationApiClient.GetOrCreate().ControlPump("start", channel, defaultDurationMinutes,
             resp => SetMessage(resp.message ?? "指令已发送"),
@@ -217,7 +239,7 @@ public class DataPanelUI : MonoBehaviour
 
     private void StopPump(int channel)
     {
-        string target = channel == 0 ? "全部花盆" : string.Format("花盆{0}", channel);
+        string target = channel == 0 ? "全部农田" : string.Format("农田{0}", channel);
         SetMessage("正在停止灌溉（" + target + "）...");
         IrrigationApiClient.GetOrCreate().ControlPump("stop", channel, 0,
             resp => SetMessage(resp.message ?? "指令已发送"),
@@ -237,6 +259,41 @@ public class DataPanelUI : MonoBehaviour
         SetTextSafe(_msgText, msg);
     }
 
+    // ==================== 收起 / 展开 ====================
+    private void ToggleCollapse()
+    {
+        SetContentVisible(!_contentVisible);
+    }
+
+    private void SetContentVisible(bool visible)
+    {
+        _contentVisible = visible;
+        if (_collapseLabel != null)
+        {
+            _collapseLabel.text = visible ? "收起 ▲" : "展开 ▼";
+        }
+        if (_fadeRoutine != null) StopCoroutine(_fadeRoutine);
+        _fadeRoutine = StartCoroutine(FadeContent(visible));
+    }
+
+    private IEnumerator FadeContent(bool show)
+    {
+        if (_contentGroup == null) yield break;
+        _contentGroup.blocksRaycasts = show;
+        _contentGroup.interactable = show;
+        float from = _contentGroup.alpha;
+        float to = show ? 1f : 0f;
+        float t = 0f;
+        while (t < 0.22f)
+        {
+            t += Time.unscaledDeltaTime;
+            _contentGroup.alpha = Mathf.Lerp(from, to, Mathf.Clamp01(t / 0.22f));
+            yield return null;
+        }
+        _contentGroup.alpha = to;
+        _fadeRoutine = null;
+    }
+
     // ==================== UI 构建 ====================
     private void BuildCanvas()
     {
@@ -252,114 +309,136 @@ public class DataPanelUI : MonoBehaviour
 
         RectTransform cv = canvasGo.GetComponent<RectTransform>();
 
-        // ---- 顶部状态条 ----
-        RectTransform topBar = CreateRect("TopBar", cv, new Vector2(0f, 1f), new Vector2(1f, 1f),
-                                          new Vector2(0f, -64f), new Vector2(0f, 0f));
-        CreatePanel(topBar, new Color(0.10f, 0.13f, 0.18f, 0.85f));
-        _statusText = CreateText("StatusText", topBar, "数据源：连接中...", 22, Color.white,
-                                 new Vector2(0f, 0f), new Vector2(0.55f, 1f), new Vector2(24f, 0f), new Vector2(0f, 0f));
-        _avgText = CreateText("AvgText", topBar, "平均湿度 --%", 22, new Color(0.4f, 0.85f, 1f),
-                              new Vector2(0.55f, 0f), new Vector2(0.78f, 1f), Vector2.zero, Vector2.zero);
-        _weatherText = CreateText("WeatherText", topBar, "天气：加载中...", 22, Color.white,
-                                  new Vector2(0.78f, 0f), new Vector2(1f, 1f), new Vector2(0f, 0f), new Vector2(-24f, 0f));
+        // ---- 顶部细状态条（常驻，不随收起隐藏） ----
+        RectTransform topBar = UIGlass.CreateRect("TopBar", cv, new Vector2(0f, 1f), new Vector2(1f, 1f),
+                                                  new Vector2(12f, -56f), new Vector2(-12f, 0f));
+        UIGlass.CreateGlass(topBar, UIGlass.GlassBar);
 
-        // ---- 左侧三路卡片 ----
-        RectTransform leftPanel = CreateRect("ChannelPanel", cv, new Vector2(0f, 0.18f), new Vector2(0.34f, 0.94f),
-                                             new Vector2(20f, 0f), new Vector2(0f, -20f));
-        CreatePanel(leftPanel, new Color(0.10f, 0.13f, 0.18f, 0.78f));
-        BuildChannelCards(leftPanel);
+        _statusText = UIGlass.CreateText("StatusText", topBar, "数据源：连接中...", 16, Color.white,
+            new Vector2(0f, 0f), new Vector2(0.28f, 1f), new Vector2(18f, 0f), new Vector2(-4f, 0f), GetFont());
+        _avgText = UIGlass.CreateText("AvgText", topBar, "平均湿度 --%", 16, new Color(0.42f, 0.85f, 1f),
+            new Vector2(0.28f, 0f), new Vector2(0.46f, 1f), new Vector2(4f, 0f), new Vector2(-4f, 0f), GetFont());
+        _weatherText = UIGlass.CreateText("WeatherText", topBar, "天气：加载中...", 16, Color.white,
+            new Vector2(0.46f, 0f), new Vector2(0.90f, 1f), new Vector2(4f, 0f), new Vector2(-8f, 0f), GetFont());
 
-        // ---- 右侧图表 ----
-        RectTransform rightPanel = CreateRect("ChartPanel", cv, new Vector2(0.66f, 0.18f), new Vector2(1f, 0.94f),
-                                              new Vector2(0f, 0f), new Vector2(-20f, -20f));
-        CreatePanel(rightPanel, new Color(0.10f, 0.13f, 0.18f, 0.78f));
-        BuildChartPanel(rightPanel);
+        // 收起按钮（顶栏右侧）
+        Button collapseBtn = UIGlass.CreateButton("CollapseBtn", topBar, "收起 ▲", UIGlass.ButtonCollapse,
+            new Vector2(0.93f, 0f), new Vector2(1f, 1f), new Vector2(0f, 8f), new Vector2(-8f, -6f),
+            GetFont(), 15, ToggleCollapse);
+        Text collapseText = collapseBtn.GetComponentInChildren<Text>();
+        if (collapseText != null) _collapseLabel = collapseText;
 
-        // ---- 底部控制栏 ----
-        RectTransform bottomBar = CreateRect("BottomBar", cv, new Vector2(0f, 0f), new Vector2(1f, 0.18f),
-                                             new Vector2(20f, 20f), new Vector2(-20f, 0f));
-        CreatePanel(bottomBar, new Color(0.10f, 0.13f, 0.18f, 0.85f));
+        // ---- 可收起内容容器 ----
+        RectTransform content = UIGlass.CreateRect("Content", cv, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        _contentGroup = content.gameObject.AddComponent<CanvasGroup>();
+        _contentGroup.alpha = 1f;
+        _contentGroup.blocksRaycasts = true;
+        _contentGroup.interactable = true;
+
+        // ---- 左上：3 张农田卡片（300 × 96，间距 10） ----
+        RectTransform cards = UIGlass.CreateRect("FieldCards", content, new Vector2(0f, 1f), new Vector2(0f, 1f),
+                                                 new Vector2(12f, -376f), new Vector2(312f, -68f));
+        BuildFieldCards(cards);
+
+        // ---- 右上：预测图表（636 × 368） ----
+        RectTransform chartPanel = UIGlass.CreateRect("ChartPanel", content, new Vector2(1f, 1f), new Vector2(1f, 1f),
+                                                      new Vector2(-648f, -436f), new Vector2(-12f, -68f));
+        UIGlass.CreateGlass(chartPanel, UIGlass.GlassCard);
+        BuildChartPanel(chartPanel);
+
+        // ---- 底部细控制栏 ----
+        RectTransform bottomBar = UIGlass.CreateRect("BottomBar", content, new Vector2(0f, 0f), new Vector2(1f, 0f),
+                                                     new Vector2(12f, 12f), new Vector2(-12f, 64f));
+        UIGlass.CreateGlass(bottomBar, UIGlass.GlassBar);
         BuildBottomBar(bottomBar);
     }
 
-    private void BuildChannelCards(RectTransform panel)
+    private void BuildFieldCards(RectTransform cards)
     {
-        string[] names = { "花盆1", "花盆2", "花盆3" };
         for (int i = 0; i < 3; i++)
         {
-            // 卡片纵向三等分
-            float yTop = 1f - i * (1f / 3f);
-            float yBottom = 1f - (i + 1) * (1f / 3f);
-            RectTransform card = CreateRect("Card" + (i + 1), panel,
-                new Vector2(0f, yBottom), new Vector2(1f, yTop),
-                new Vector2(16f, 8f), new Vector2(-16f, -8f));
-            CreatePanel(card, new Color(0.16f, 0.20f, 0.27f, 0.9f));
+            // 卡片自上而下排列
+            float top = i * (96f + 10f);
+            RectTransform card = UIGlass.CreateRect("Card" + (i + 1), cards,
+                new Vector2(0f, 1f), new Vector2(1f, 1f),
+                new Vector2(0f, -(top + 96f)), new Vector2(0f, -top));
+            UIGlass.CreateGlass(card, UIGlass.GlassCard);
 
-            int index = i;
-            // 标题 + 泵状态
-            CreateText("Title", card, names[i], 26, Color.white,
-                       new Vector2(0f, 0.62f), new Vector2(1f, 1f), new Vector2(20f, 0f), new Vector2(-20f, 0f));
+            // 标题（含湿度色圆点）
+            _channelTitleTexts[i] = UIGlass.CreateText("Title", card, string.Format("● 农田 {0}", i + 1),
+                17, Color.white,
+                new Vector2(0f, 0.64f), new Vector2(0.56f, 1f), new Vector2(14f, -2f), new Vector2(-2f, -2f),
+                GetFont(), TextAnchor.MiddleLeft, FontStyle.Bold);
 
-            _channelPumpTexts[i] = CreateText("PumpState", card, "⏸ 未灌溉", 22, new Color(0.75f, 0.75f, 0.75f),
-                                              new Vector2(0f, 0.40f), new Vector2(1f, 0.62f), new Vector2(20f, 0f), new Vector2(-20f, 0f));
+            // 泵状态（右上角）
+            _channelPumpTexts[i] = UIGlass.CreateText("PumpState", card, "⏸ 待机", 14, new Color(0.72f, 0.74f, 0.78f),
+                new Vector2(0.56f, 0.64f), new Vector2(1f, 1f), new Vector2(2f, -2f), new Vector2(-10f, -2f),
+                GetFont(), TextAnchor.MiddleRight);
 
-            // 湿度条（背景 + 锚点拉伸填充）
-            RectTransform bar = CreateRect("Bar", card, new Vector2(0f, 0.16f), new Vector2(0.62f, 0.40f),
-                                           new Vector2(20f, 0f), new Vector2(0f, -4f));
-            CreatePanel(bar, new Color(0.08f, 0.09f, 0.12f, 1f));
-            Image fill = CreateFill(bar);
+            // 湿度进度条（背景 + 锚点拉伸填充）
+            RectTransform bar = UIGlass.CreateRect("Bar", card, new Vector2(0f, 0.30f), new Vector2(0.74f, 0.60f),
+                                                   new Vector2(14f, 0f), new Vector2(-6f, -4f));
+            UIGlass.CreateGlass(bar, new Color(0f, 0f, 0f, 0.35f), outline: false);
+            Image fill = UIGlass.CreateFill(bar);
             _channelBarFills[i] = fill;
-            SetBarRatio(fill, 0f, ProceduralStyle.SoilNormal);
+            UIGlass.SetBarRatio(fill, 0f, ProceduralStyle.SoilNormal);
 
-            // 湿度数值
-            _channelMoistureTexts[i] = CreateText("Moisture", card, "湿度 --%", 24, Color.white,
-                                                  new Vector2(0.64f, 0.16f), new Vector2(1f, 0.40f), Vector2.zero, Vector2.zero);
+            // 湿度数值（进度条右侧）
+            _channelMoistureTexts[i] = UIGlass.CreateText("Moisture", card, "--%", 19, Color.white,
+                new Vector2(0.76f, 0.30f), new Vector2(1f, 0.60f), new Vector2(2f, 0f), new Vector2(-10f, -4f),
+                GetFont(), TextAnchor.MiddleRight, FontStyle.Bold);
 
-            // 启动/停止按钮
-            CreateButton("StartBtn", card, "启动灌溉", new Vector2(0f, 0f), new Vector2(0.49f, 0.15f),
-                         new Color(0.20f, 0.55f, 0.85f),
-                         () => StartPump(index + 1));
-            CreateButton("StopBtn", card, "停止", new Vector2(0.51f, 0f), new Vector2(1f, 0.15f),
-                         new Color(0.65f, 0.30f, 0.30f),
-                         () => StopPump(index + 1));
+            // 灌溉 / 停止按钮
+            int index = i;
+            UIGlass.CreateButton("StartBtn", card, "灌溉", UIGlass.ButtonStart,
+                new Vector2(0f, 0f), new Vector2(0.47f, 0.28f), new Vector2(14f, 4f), new Vector2(-4f, -2f),
+                GetFont(), 15, () => StartPump(index + 1));
+            UIGlass.CreateButton("StopBtn", card, "停止", UIGlass.ButtonStop,
+                new Vector2(0.53f, 0f), new Vector2(1f, 0.28f), new Vector2(4f, 4f), new Vector2(-14f, -2f),
+                GetFont(), 15, () => StopPump(index + 1));
         }
     }
 
     private void BuildChartPanel(RectTransform panel)
     {
-        CreateText("ChartTitle", panel, string.Format("灌溉预测 · 未来 {0} 分钟", predictionMinutes), 26, Color.white,
-                   new Vector2(0f, 0.90f), new Vector2(1f, 1f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
+        UIGlass.CreateText("ChartTitle", panel, string.Format("湿度预测 · 未来 {0} 分钟", predictionMinutes),
+            16, Color.white,
+            new Vector2(0f, 0.90f), new Vector2(1f, 1f), new Vector2(18f, 0f), new Vector2(-18f, 0f),
+            GetFont(), TextAnchor.MiddleLeft, FontStyle.Bold);
 
-        _chartLegend = CreateText("Legend", panel, "●花盆1  ●花盆2  ●花盆3", 20, new Color(0.85f, 0.85f, 0.85f),
-                                  new Vector2(0f, 0.83f), new Vector2(1f, 0.90f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
+        _chartLegend = UIGlass.CreateText("Legend", panel, "●农田1  ●农田2  ●农田3", 13, new Color(0.82f, 0.84f, 0.88f),
+            new Vector2(0f, 0.82f), new Vector2(1f, 0.90f), new Vector2(18f, 0f), new Vector2(-18f, 0f), GetFont());
 
         // 图表区
-        RectTransform chartArea = CreateRect("Chart", panel, new Vector2(0f, 0.42f), new Vector2(1f, 0.83f),
-                                             new Vector2(24f, 0f), new Vector2(-24f, 0f));
-        CreatePanel(chartArea, new Color(0.07f, 0.08f, 0.11f, 0.9f));
+        RectTransform chartArea = UIGlass.CreateRect("Chart", panel, new Vector2(0f, 0.30f), new Vector2(1f, 0.82f),
+                                                     new Vector2(18f, 0f), new Vector2(-18f, -2f));
+        UIGlass.CreateGlass(chartArea, UIGlass.GlassDark, outline: false);
         _chart = chartArea.gameObject.AddComponent<UILineChart>();
         _chart.SetData(new[] { new[] { 50f, 50f, 50f, 50f } }, 0f, 100f);
 
         // 灌溉统计（节水数据，比赛工程效果）
-        _statsText = CreateText("IrrigationStats", panel, "💧 灌溉统计加载中...", 22, new Color(0.55f, 0.9f, 0.65f),
-                                new Vector2(0f, 0.17f), new Vector2(1f, 0.40f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
+        _statsText = UIGlass.CreateText("IrrigationStats", panel, "💧 灌溉统计加载中...", 13, new Color(0.55f, 0.9f, 0.65f),
+            new Vector2(0f, 0.16f), new Vector2(1f, 0.29f), new Vector2(18f, 0f), new Vector2(-18f, 0f), GetFont());
 
         // 天气详情
-        _weatherDetail = CreateText("WeatherDetail", panel, "天气数据加载中...", 22, Color.white,
-                                    new Vector2(0f, 0f), new Vector2(1f, 0.15f), new Vector2(24f, 0f), new Vector2(-24f, 0f));
+        _weatherDetail = UIGlass.CreateText("WeatherDetail", panel, "天气数据加载中...", 13, Color.white,
+            new Vector2(0f, 0.03f), new Vector2(1f, 0.16f), new Vector2(18f, 0f), new Vector2(-18f, 0f), GetFont());
     }
 
     private void BuildBottomBar(RectTransform bar)
     {
-        _msgText = CreateText("Message", bar, "等待数据...", 22, new Color(0.9f, 0.9f, 0.9f),
-                              new Vector2(0f, 0f), new Vector2(0.62f, 1f), new Vector2(24f, 0f), Vector2.zero);
+        _msgText = UIGlass.CreateText("Message", bar, "等待数据...", 15, new Color(0.88f, 0.9f, 0.92f),
+            new Vector2(0f, 0f), new Vector2(0.52f, 1f), new Vector2(16f, 0f), Vector2.zero, GetFont());
 
-        CreateButton("StartAll", bar, "全部启动", new Vector2(0.63f, 0.12f), new Vector2(0.74f, 0.88f),
-                     new Color(0.20f, 0.55f, 0.85f), () => StartPump(0));
-        CreateButton("StopAll", bar, "全部停止", new Vector2(0.75f, 0.12f), new Vector2(0.86f, 0.88f),
-                     new Color(0.65f, 0.30f, 0.30f), () => StopPump(0));
-        CreateButton("AutoMode", bar, "自动模式", new Vector2(0.87f, 0.12f), new Vector2(0.99f, 0.88f),
-                     new Color(0.25f, 0.50f, 0.35f), AutoMode);
+        UIGlass.CreateButton("StartAll", bar, "全部灌溉", UIGlass.ButtonStart,
+            new Vector2(0.53f, 0f), new Vector2(0.68f, 1f), new Vector2(0f, 10f), new Vector2(0f, -10f),
+            GetFont(), 16, () => StartPump(0));
+        UIGlass.CreateButton("StopAll", bar, "全部停止", UIGlass.ButtonStop,
+            new Vector2(0.69f, 0f), new Vector2(0.80f, 1f), new Vector2(0f, 10f), new Vector2(0f, -10f),
+            GetFont(), 16, () => StopPump(0));
+        UIGlass.CreateButton("AutoMode", bar, "自动模式", UIGlass.ButtonAuto,
+            new Vector2(0.81f, 0f), new Vector2(0.99f, 1f), new Vector2(0f, 10f), new Vector2(0f, -10f),
+            GetFont(), 16, AutoMode);
     }
 
     // ==================== UI 工具 ====================
@@ -378,97 +457,6 @@ public class DataPanelUI : MonoBehaviour
         }
         _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         return _font;
-    }
-
-    private static RectTransform CreateRect(string name, Transform parent,
-                                            Vector2 anchorMin, Vector2 anchorMax,
-                                            Vector2 offsetMin, Vector2 offsetMax)
-    {
-        GameObject go = new GameObject(name, typeof(RectTransform));
-        RectTransform rt = go.GetComponent<RectTransform>();
-        rt.SetParent(parent, false);
-        rt.anchorMin = anchorMin;
-        rt.anchorMax = anchorMax;
-        rt.offsetMin = offsetMin;
-        rt.offsetMax = offsetMax;
-        return rt;
-    }
-
-    private static Image CreatePanel(Transform parent, Color color)
-    {
-        GameObject go = new GameObject("Panel", typeof(Image));
-        go.transform.SetParent(parent, false);
-        RectTransform rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
-        Image img = go.GetComponent<Image>();
-        img.color = color;
-        img.raycastTarget = false;
-        return img;
-    }
-
-    private static Text CreateText(string name, Transform parent, string content, int fontSize, Color color,
-                                   Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
-    {
-        GameObject go = new GameObject(name, typeof(Text));
-        go.transform.SetParent(parent, false);
-        RectTransform rt = go.GetComponent<RectTransform>();
-        rt.anchorMin = anchorMin;
-        rt.anchorMax = anchorMax;
-        rt.offsetMin = offsetMin;
-        rt.offsetMax = offsetMax;
-        Text t = go.GetComponent<Text>();
-        t.font = GetFont();
-        t.text = content;
-        t.fontSize = fontSize;
-        t.color = color;
-        t.alignment = TextAnchor.MiddleLeft;
-        t.raycastTarget = false;
-        return t;
-    }
-
-    private static Image CreateFill(Transform parent)
-    {
-        GameObject go = new GameObject("Fill", typeof(Image));
-        go.transform.SetParent(parent, false);
-        Image img = go.GetComponent<Image>();
-        img.color = Color.white;
-        img.raycastTarget = false;
-        return img;
-    }
-
-    private static void SetBarRatio(Image fill, float ratio, Color color)
-    {
-        if (fill == null) return;
-        RectTransform rt = fill.rectTransform;
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = new Vector2(Mathf.Clamp01(ratio), 1f);
-        rt.offsetMin = new Vector2(3f, 3f);
-        rt.offsetMax = new Vector2(-3f, -3f);
-        fill.color = color;
-    }
-
-    private static void CreateButton(string name, Transform parent, string label,
-                                     Vector2 anchorMin, Vector2 anchorMax, Color color,
-                                     UnityEngine.Events.UnityAction onClick)
-    {
-        RectTransform rt = CreateRect(name, parent, anchorMin, anchorMax, Vector2.zero, Vector2.zero);
-
-        Image bg = rt.gameObject.AddComponent<Image>();
-        bg.color = color;
-
-        Button btn = rt.gameObject.AddComponent<Button>();
-        ColorBlock cb = btn.colors;
-        cb.highlightedColor = color * 1.15f;
-        cb.pressedColor = color * 0.8f;
-        btn.colors = cb;
-        btn.onClick.AddListener(onClick);
-
-        Text labelText = CreateText("Label", rt, label, 24, Color.white,
-                                    Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-        labelText.alignment = TextAnchor.MiddleCenter;
     }
 
     private static void SetTextSafe(Text t, string content)

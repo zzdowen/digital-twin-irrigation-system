@@ -7,12 +7,12 @@ using UnityEngine;
 public class OrbitCamera : MonoBehaviour
 {
     [Header("观察目标")]
-    [SerializeField] private Vector3 target = new Vector3(0f, 0.7f, 0f);
+    [SerializeField] private Vector3 target = new Vector3(0f, 0.6f, 0f);
 
     [Header("距离限制")]
-    [SerializeField] private float distance = 7.5f;
-    [SerializeField] private float minDistance = 3.5f;
-    [SerializeField] private float maxDistance = 14f;
+    [SerializeField] private float distance = 12.5f;
+    [SerializeField] private float minDistance = 4.5f;
+    [SerializeField] private float maxDistance = 24f;
 
     [Header("旋转灵敏度")]
     [SerializeField] private float rotateSpeed = 4f;
@@ -20,7 +20,7 @@ public class OrbitCamera : MonoBehaviour
 
     [Header("俯仰角限制")]
     [SerializeField] private float minPitch = 12f;   // 最低仰角（避免穿地）
-    [SerializeField] private float maxPitch = 80f;   // 最高俯角
+    [SerializeField] private float maxPitch = 78f;   // 最高俯角
 
     private float _yaw;
     private float _pitch = 42f;

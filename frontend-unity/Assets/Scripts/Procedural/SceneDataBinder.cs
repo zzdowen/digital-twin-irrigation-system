@@ -5,7 +5,7 @@ using UnityEngine;
 /// - 土壤颜色随湿度（>60% 深棕 / 30-60% 棕黄 / <30% 浅黄）
 /// - 水泵 LED（运行=蓝亮 / 停止=灰）
 /// - 传感器状态灯（正常=绿 / 干燥<30%=红）
-/// - 灌溉水流粒子（泵开=播放 / 泵停=停止）
+/// - 喷灌水流粒子（泵开=播放 / 泵停=停止）
 /// </summary>
 public class SceneDataBinder : MonoBehaviour
 {
@@ -71,7 +71,7 @@ public class SceneDataBinder : MonoBehaviour
                 }
             }
 
-            // 4. 灌溉水流
+            // 4. 喷灌水流
             if (_waterFlows != null && i < _waterFlows.Length && _waterFlows[i] != null)
             {
                 if (ch.pump_status && !_waterFlows[i].isPlaying)

@@ -1,6 +1,6 @@
-# 🎮 Unity 3D 前端（v3.1.0）
+# 🎮 Unity 3D 前端（v4.0.0）
 
-数字孪生灌溉系统的可视化层：**程序化一键场景**（动漫低模风格）+ 数据面板 + 天气联动 + 灌溉控制。
+数字孪生灌溉系统的可视化层：**程序化一键场景**（动漫低模风格，3 块农田）+ 玻璃风数据面板 + 天气联动 + 灌溉控制。
 
 ## 模块清单（全部完成）
 
@@ -21,13 +21,14 @@
 |------|------|
 | `ToonLit.shader` | 卡通着色器（阶梯光照 + 描边） |
 | `ProceduralStyle.cs` | 动漫调色板 + 材质/部件工厂 |
-| `ProceduralGround/Farmland/Plants/Sun/Clouds/Birds/Equipment.cs` | 程序化模型：地面/花盆/作物/太阳/云/飞鸟/水泵水箱管道传感器 |
+| `ProceduralGround/Farmland/Plants/Sun/Clouds/Birds/Equipment.cs` | 程序化模型：地面/3 块农田（田埂+垄+成排作物）/太阳/云/飞鸟/水泵水箱管道喷头传感器 |
 | `RainEffect.cs` | 程序化雨效 |
 | `WeatherController.cs` | 天气联动（天空/光照/云/雨/鸟 随 API 天气变化） |
-| `SceneDataBinder.cs` | 数据→视觉绑定（土壤变色/LED/水流/传感器灯） |
+| `SceneDataBinder.cs` | 数据→视觉绑定（土壤变色/LED/喷灌水流/传感器灯） |
 | `OrbitCamera.cs` | 观察相机（左键旋转/右键平移/滚轮缩放） |
 | `UILineChart.cs` | 轻量折线图组件（多序列） |
-| `DataPanelUI.cs` | 程序化数据面板（3 路湿度卡片/预测曲线/灌溉统计/天气/控制按钮） |
+| `UIGlass.cs` | 玻璃风 UI 工具（运行时生成圆角切片/半透明面板/按钮） |
+| `DataPanelUI.cs` | 程序化数据面板（玻璃风·紧凑版：3 张农田卡片/预测曲线/灌溉统计/天气/控制按钮，可收起） |
 | `SceneBuilder.cs` | 一键场景生成器（含编辑器菜单入口） |
 
 ## 快速开始

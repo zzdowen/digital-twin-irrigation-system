@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
@@ -18,7 +18,7 @@ public class UILineChart : MaskableGraphic
     [SerializeField] private float[] singleValues;    // 编辑器预览用单序列
     [SerializeField] private Color previewColor = new Color(0.3f, 0.7f, 1f, 1f);
 
-    [Header("三路序列颜色（花盆1/2/3）")]
+    [Header("三路序列颜色（农田1/2/3）")]
     [SerializeField] private Color series1Color = new Color(0.30f, 0.70f, 1.00f, 1f);
     [SerializeField] private Color series2Color = new Color(0.35f, 0.85f, 0.45f, 1f);
     [SerializeField] private Color series3Color = new Color(1.00f, 0.70f, 0.30f, 1f);

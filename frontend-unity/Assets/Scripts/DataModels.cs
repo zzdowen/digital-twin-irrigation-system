@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 /// <summary>
 /// 数据模型定义 v3.0.0：3 路独立灌溉，与《系统接口契约v3.md》完全一致。
@@ -11,11 +11,11 @@ using System;
 ///    若遇到解析问题，可替换为 Newtonsoft.Json 的 JArray 手动解析。
 /// </summary>
 
-/// <summary>单路数据（一个花盆）</summary>
+/// <summary>单路数据（一个农田）</summary>
 [Serializable]
 public class ChannelData
 {
-    public int   channel;              // 花盆编号 1/2/3
+    public int   channel;              // 农田编号 1/2/3
     public float soil_moisture;        // 土壤湿度（%）
     public bool  pump_status;          // 水泵是否运行
     public int   irrigation_duration;  // 灌溉已持续秒数
@@ -25,7 +25,7 @@ public class ChannelData
 [Serializable]
 public class RealtimeData
 {
-    public ChannelData[] channels;             // 3 路，下标 0-2 对应花盆 1-3
+    public ChannelData[] channels;             // 3 路，下标 0-2 对应农田 1-3
     public float  soil_moisture_avg;           // 3 路平均湿度（%）
     public int    active_pumps;                // 运行中的水泵数量
     public string data_source;                 // "simulated" 或 "mqtt"
@@ -46,7 +46,7 @@ public class HistoricalDataPoint
 [Serializable]
 public class HistoricalData
 {
-    public HistoricalDataPoint[][] channels;  // 嵌套数组：下标 0-2 = 花盆 1-3，每项为该路的时间序列
+    public HistoricalDataPoint[][] channels;  // 嵌套数组：下标 0-2 = 农田 1-3，每项为该路的时间序列
     public int total_points;                  // 每路数据点总数
     public int query_range_hours;             // 查询时间范围（小时）
 }
@@ -75,7 +75,7 @@ public class WeatherEntry
 [Serializable]
 public class PredictionData
 {
-    public PredictionPoint[][] predictions;  // 嵌套数组：下标 0-2 = 花盆 1-3
+    public PredictionPoint[][] predictions;  // 嵌套数组：下标 0-2 = 农田 1-3
     public RealtimeData      current_conditions;          // 当前工况
     public int               prediction_horizon_minutes;  // 预测总时长
     public string            algorithm_info;              // 预测算法说明
@@ -141,8 +141,8 @@ public class ControlResponse
 {
     public string status;        // "success" / "error"
     public string message;       // 服务器提示信息（中文）
-    public int    channel;       // 单路控制时返回的目标花盆
-    public int[]  channels;      // 全部控制时返回的目标花盆列表
+    public int    channel;       // 单路控制时返回的目标农田
+    public int[]  channels;      // 全部控制时返回的目标农田列表
     public bool[] pump_status;   // 操作后的水泵状态数组
     public bool   auto_mode;     // auto 命令时返回
 }

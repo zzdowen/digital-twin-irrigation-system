@@ -19,8 +19,11 @@ public static class ProceduralStyle
     public static readonly Color SkyCloudy    = new Color(0.62f, 0.66f, 0.72f, 1f);   // 阴天天空
     public static readonly Color SkyRainy     = new Color(0.38f, 0.42f, 0.50f, 1f);   // 雨天天空
 
-    // 花盆与土壤
-    public static readonly Color PlanterBrown = new Color(0.60f, 0.42f, 0.28f, 1f);   // 花盆木色
+    // 农田与土壤
+    public static readonly Color PlanterBrown = new Color(0.60f, 0.42f, 0.28f, 1f);   // 田埂木色（保留兼容）
+    public static readonly Color RidgeBrown   = new Color(0.46f, 0.32f, 0.20f, 1f);   // 田埂土色
+    public static readonly Color FurrowDark   = new Color(0.40f, 0.28f, 0.20f, 1f);   // 垄沟深土色
+    public static readonly Color WalkwayGray  = new Color(0.83f, 0.81f, 0.76f, 1f);   // 田间步道
     public static readonly Color SoilWet      = new Color(0.33f, 0.23f, 0.15f, 1f);   // 土壤湿润（>60%）
     public static readonly Color SoilNormal   = new Color(0.52f, 0.40f, 0.30f, 1f);   // 土壤正常（30-60%）
     public static readonly Color SoilDry      = new Color(0.78f, 0.70f, 0.58f, 1f);   // 土壤干燥（<30%）
@@ -119,6 +122,19 @@ public static class ProceduralStyle
                 ? CreateGlowMaterial(color)
                 : CreateMaterial(color, rampSteps);
         }
+        return go;
+    }
+
+    /// <summary>
+    /// 创建一个基础模型部件并套用卡通材质（可指定局部旋转，用于横放圆柱等）。
+    /// 返回 GameObject（已挂 MeshRenderer，无 Collider）。
+    /// </summary>
+    public static GameObject CreatePart(string name, Transform parent, PrimitiveType type,
+                                        Color color, Vector3 localPos, Vector3 localScale,
+                                        Quaternion localRotation, float rampSteps = 3f, bool glow = false)
+    {
+        GameObject go = CreatePart(name, parent, type, color, localPos, localScale, rampSteps, glow);
+        go.transform.localRotation = localRotation;
         return go;
     }
 

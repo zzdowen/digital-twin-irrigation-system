@@ -26,19 +26,19 @@ public class EquipmentSet
 }
 
 /// <summary>
-/// 程序化设备：3 台水泵 + 1 个水箱 + 主管道与 3 支喷头管 + 3 个土壤湿度传感器探针。
-/// 布局与场景设计文档一致：设备区在花盆后方（z = -2.4），花盆在 z = 0。
+/// 程序化设备 v4.0.0：3 台水泵 + 1 个水箱 + 主管道与 3 支喷灌立管（带喷头）+ 3 个土壤湿度传感器探针。
+/// 布局适配三块农田：设备区在农田后方（z = -3.2），农田在 z = 0，
+/// 每支喷头管从后方管道伸到对应农田中心上方，向下喷灌。
 /// </summary>
 public class ProceduralEquipment : MonoBehaviour
 {
     [Header("布局参数")]
-    [SerializeField] private float pumpSpacing = 2f;      // 水泵间距（与花盆对齐）
-    [SerializeField] private float equipmentZ = -2.4f;    // 设备区 z
-    [SerializeField] private float pipeHeight = 0.35f;    // 主管高度
-    [SerializeField] private float nozzleHeight = 0.95f;  // 喷头管高度
-    [SerializeField] private float tankX = 3.6f;          // 水箱 x
+    [SerializeField] private float equipmentZ = -3.2f;   // 设备区 z
+    [SerializeField] private float pipeHeight = 0.4f;    // 主管高度
+    [SerializeField] private float nozzleHeight = 1.5f;  // 喷头管高度
+    [SerializeField] private float tankX = 6.2f;         // 水箱 x
 
-    /// <summary>生成全部设备（pumpXs 为 3 台水泵的 x 坐标）</summary>
+    /// <summary>生成全部设备（pumpXs 为 3 台水泵/农田中心的 x 坐标）</summary>
     public EquipmentSet Build(Transform parent, float[] pumpXs)
     {
         EquipmentSet set = new EquipmentSet();
@@ -55,10 +55,10 @@ public class ProceduralEquipment : MonoBehaviour
         // ---- 水箱 ----
         set.tank = BuildTank(set.root, tankX, equipmentZ);
 
-        // ---- 管道 ----
+        // ---- 管道与喷头 ----
         BuildPipes(set.root, pumpXs);
 
-        // ---- 3 个传感器探针（插在花盆土壤上，花盆 z=0）----
+        // ---- 3 个传感器探针（插在对应农田土壤前沿） ----
         set.sensors = new SensorUnit[pumpXs.Length];
         for (int i = 0; i < pumpXs.Length; i++)
         {
@@ -109,8 +109,8 @@ public class ProceduralEquipment : MonoBehaviour
         // 半透明箱体（用独立材质以支持透明）
         GameObject body = ProceduralStyle.CreatePart("Body", tank, PrimitiveType.Cube,
             ProceduralStyle.TankBlue,
-            new Vector3(0f, 0.42f, 0f),
-            new Vector3(0.9f, 0.84f, 0.6f));
+            new Vector3(0f, 0.45f, 0f),
+            new Vector3(1.0f, 0.9f, 0.66f));
         MeshRenderer mr = body.GetComponent<MeshRenderer>();
         if (mr != null)
         {
@@ -128,8 +128,8 @@ public class ProceduralEquipment : MonoBehaviour
         // 箱盖
         ProceduralStyle.CreatePart("Lid", tank, PrimitiveType.Cube,
             ProceduralStyle.MetalDark,
-            new Vector3(0f, 0.87f, 0f),
-            new Vector3(0.94f, 0.05f, 0.64f));
+            new Vector3(0f, 0.93f, 0f),
+            new Vector3(1.04f, 0.05f, 0.7f));
 
         return tank;
     }
@@ -139,12 +139,12 @@ public class ProceduralEquipment : MonoBehaviour
         Transform pipes = new GameObject("Pipes").transform;
         pipes.SetParent(parent, false);
 
-        // 主管：沿 x 轴横放（cylinder 轴向 y → 绕 z 转 90° 变轴向 x）
-        float mainLen = 8f;
+        // 主管：沿 x 轴横放（cylinder 轴向 y → 绕 z 转 90° 变轴向 x），覆盖三块农田宽度
+        float mainLen = 13f;
         GameObject main = ProceduralStyle.CreatePart("PipeMain", pipes, PrimitiveType.Cylinder,
             ProceduralStyle.PipeWhite,
             new Vector3(0f, pipeHeight, equipmentZ),
-            new Vector3(0.07f, mainLen * 0.5f, 0.07f));
+            new Vector3(0.08f, mainLen * 0.5f, 0.08f));
         main.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
 
         for (int i = 0; i < pumpXs.Length; i++)
@@ -159,19 +159,30 @@ public class ProceduralEquipment : MonoBehaviour
                 new Vector3(x, (pipeHeight + nozzleHeight) * 0.5f, equipmentZ),
                 new Vector3(0.05f, (nozzleHeight - pipeHeight) * 0.5f, 0.05f));
 
-            // 水平喷头管：沿 z 伸到花盆上方（cylinder 绕 x 转 90° 变轴向 z）
-            float horizLen = Mathf.Abs(equipmentZ) + 0.15f;
+            // 水平喷头管：沿 z 伸到农田中心上方（cylinder 绕 x 转 90° 变轴向 z）
+            float fieldCenterZ = 0.1f;
+            float horizLen = Mathf.Abs(equipmentZ - fieldCenterZ) + 0.15f;
             GameObject arm = ProceduralStyle.CreatePart("Arm", branch, PrimitiveType.Cylinder,
                 ProceduralStyle.PipeWhite,
-                new Vector3(x, nozzleHeight, equipmentZ * 0.5f + 0.05f),
+                new Vector3(x, nozzleHeight, (equipmentZ + fieldCenterZ) * 0.5f),
                 new Vector3(0.05f, horizLen * 0.5f, 0.05f));
             arm.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+            // 喷头（横向十字管，模拟旋转喷头外观）
+            ProceduralStyle.CreatePart("SprinklerX", branch, PrimitiveType.Cylinder,
+                ProceduralStyle.MetalDark,
+                new Vector3(x, nozzleHeight - 0.04f, fieldCenterZ),
+                new Vector3(0.02f, 0.32f, 0.02f), Quaternion.Euler(0f, 0f, 90f));
+            ProceduralStyle.CreatePart("SprinklerZ", branch, PrimitiveType.Cylinder,
+                ProceduralStyle.MetalDark,
+                new Vector3(x, nozzleHeight - 0.04f, fieldCenterZ),
+                new Vector3(0.02f, 0.32f, 0.02f), Quaternion.Euler(90f, 0f, 0f));
 
             // 喷头出水口（小圆筒，向下）
             ProceduralStyle.CreatePart("NozzleTip", branch, PrimitiveType.Cylinder,
                 ProceduralStyle.MetalDark,
-                new Vector3(x, nozzleHeight - 0.06f, 0.1f),
-                new Vector3(0.06f, 0.06f, 0.06f));
+                new Vector3(x, nozzleHeight - 0.08f, fieldCenterZ),
+                new Vector3(0.06f, 0.07f, 0.06f));
         }
     }
 
@@ -180,23 +191,23 @@ public class ProceduralEquipment : MonoBehaviour
         SensorUnit unit = new SensorUnit();
         unit.root = new GameObject(string.Format("SoilSensor_{0}", index));
         unit.root.transform.SetParent(parent, false);
-        // 放在花盆土壤前沿（花盆边内 0.25）
-        unit.root.transform.localPosition = new Vector3(x, 0f, z + 0.22f);
+        // 放在对应农田土壤前沿（z = 0.95 在农田内部）
+        unit.root.transform.localPosition = new Vector3(x, 0f, z + 0.95f);
 
-        // 主体小方块（土壤表面）
+        // 主体小方块（土壤表面上方）
         ProceduralStyle.CreatePart("Body", unit.root.transform, PrimitiveType.Cube,
             ProceduralStyle.SensorGray,
-            new Vector3(0f, 0.42f, 0f),
+            new Vector3(0f, 0.28f, 0f),
             new Vector3(0.07f, 0.06f, 0.05f));
         // 探针（插入土中，向下）
         ProceduralStyle.CreatePart("Probe", unit.root.transform, PrimitiveType.Cylinder,
             ProceduralStyle.MetalDark,
-            new Vector3(0f, 0.33f, 0f),
-            new Vector3(0.012f, 0.11f, 0.012f));
+            new Vector3(0f, 0.17f, 0f),
+            new Vector3(0.012f, 0.1f, 0.012f));
         // 状态灯（独立材质实例）
         unit.ledRenderer = ProceduralStyle.CreateDynamicPart("Led", unit.root.transform,
             PrimitiveType.Sphere, ProceduralStyle.SensorGreen,
-            new Vector3(0f, 0.5f, 0f),
+            new Vector3(0f, 0.37f, 0f),
             new Vector3(0.028f, 0.028f, 0.028f));
         unit.ledMaterial = unit.ledRenderer != null ? unit.ledRenderer.sharedMaterial : null;
 

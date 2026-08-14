@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>
 /// 场景视觉控制器 v3.0.0：根据 3 路实时数据驱动场景中的 3D 模型表现。
@@ -6,13 +6,13 @@ using UnityEngine;
 /// - 水泵 LED 指示灯（运行=蓝亮，停止=灰）
 /// - 灌溉水流粒子（泵开=播放，泵停=停止）
 ///
-/// 挂载方式：挂到场景中任意物体，在 Inspector 配置 ChannelVisualBinding 数组（下标 0-2 = 花盆 1-3）。
-/// 前提：各花盆土壤材质必须是独立实例（否则改色会影响所有花盆），LED 材质同理。
+/// 挂载方式：挂到场景中任意物体，在 Inspector 配置 ChannelVisualBinding 数组（下标 0-2 = 农田 1-3）。
+/// 前提：各农田土壤材质必须是独立实例（否则改色会影响所有农田），LED 材质同理。
 /// </summary>
 [System.Serializable]
 public class ChannelVisualBinding
 {
-    [Tooltip("该花盆土壤渲染器（材质需独立实例）")]
+    [Tooltip("该农田土壤渲染器（材质需独立实例）")]
     public Renderer soilRenderer;
     [Tooltip("水泵运行指示灯渲染器")]
     public Renderer pumpLedRenderer;
@@ -26,7 +26,7 @@ public class SceneVisualController : MonoBehaviour
     [Tooltip("留空时自动在场景中查找 RealtimeDataPoller")]
     [SerializeField] private RealtimeDataPoller poller;
 
-    [Header("三路场景绑定（下标 0-2 = 花盆 1-3）")]
+    [Header("三路场景绑定（下标 0-2 = 农田 1-3）")]
     [SerializeField] private ChannelVisualBinding[] channelVisuals = new ChannelVisualBinding[3];
 
     [Header("土壤颜色（按湿度分档）")]
