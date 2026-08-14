@@ -297,6 +297,14 @@ public class DataPanelUI : MonoBehaviour
     // ==================== UI 构建 ====================
     private void BuildCanvas()
     {
+        // 确保场景中有 EventSystem（否则按钮收不到点击，onClick 永不触发、发不出控制请求）
+        if (UnityEngine.EventSystems.EventSystem.current == null)
+        {
+            new GameObject("EventSystem",
+                typeof(UnityEngine.EventSystems.EventSystem),
+                typeof(UnityEngine.EventSystems.StandaloneInputModule));
+        }
+
         // Canvas
         GameObject canvasGo = new GameObject("IrrigationCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
         canvasGo.transform.SetParent(transform, false);
