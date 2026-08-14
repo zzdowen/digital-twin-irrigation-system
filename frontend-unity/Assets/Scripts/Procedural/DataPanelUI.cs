@@ -294,16 +294,39 @@ public class DataPanelUI : MonoBehaviour
         _fadeRoutine = null;
     }
 
+    /// <summary>
+    /// 确保场景中存在 EventSystem（否则 UI 按钮收不到点击）。
+    /// 反射检测项目当前使用的输入系统：装了新 Input System 包就用 InputSystemUIInputModule，
+    /// 否则用旧 StandaloneInputModule —— 避免"按钮只高亮、点击不响应"。
+    /// </summary>
+    private static void EnsureEventSystem()
+    {
+        if (UnityEngine.EventSystems.EventSystem.current != null)
+        {
+            Debug.Log("[DataPanelUI] EventSystem 已存在，跳过自动创建");
+            return;
+        }
+
+        GameObject es = new GameObject("EventSystem", typeof(UnityEngine.EventSystems.EventSystem));
+
+        System.Type inputSystemModule = System.Type.GetType(
+            "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem", false);
+        if (inputSystemModule != null)
+        {
+            es.AddComponent(inputSystemModule);
+            Debug.Log("[DataPanelUI] 已自动创建 EventSystem（InputSystemUIInputModule / 新输入系统）");
+        }
+        else
+        {
+            es.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+            Debug.Log("[DataPanelUI] 已自动创建 EventSystem（StandaloneInputModule / 旧输入系统）");
+        }
+    }
+
     // ==================== UI 构建 ====================
     private void BuildCanvas()
     {
-        // 确保场景中有 EventSystem（否则按钮收不到点击，onClick 永不触发、发不出控制请求）
-        if (UnityEngine.EventSystems.EventSystem.current == null)
-        {
-            new GameObject("EventSystem",
-                typeof(UnityEngine.EventSystems.EventSystem),
-                typeof(UnityEngine.EventSystems.StandaloneInputModule));
-        }
+        EnsureEventSystem();
 
         // Canvas
         GameObject canvasGo = new GameObject("IrrigationCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -348,17 +371,24 @@ public class DataPanelUI : MonoBehaviour
                                                  new Vector2(12f, -376f), new Vector2(312f, -68f));
         BuildFieldCards(cards);
 
-        // ---- 右上：预测图表（636 × 368） ----
-        RectTransform chartPanel = UIGlass.CreateRect("ChartPanel", content, new Vector2(1f, 1f), new Vector2(1f, 1f),
-                                                      new Vector2(-648f, -436f), new Vector2(-12f, -68f));
-        UIGlass.CreateGlass(chartPanel, UIGlass.GlassCard);
-        BuildChartPanel(chartPanel);
-
-        // ---- 底部细控制栏 ----
+        // ---- 底部细控制栏（先建：控制按钮优先绑定，绝不被图表异常阻断） ----
         RectTransform bottomBar = UIGlass.CreateRect("BottomBar", content, new Vector2(0f, 0f), new Vector2(1f, 0f),
                                                      new Vector2(12f, 12f), new Vector2(-12f, 64f));
         UIGlass.CreateGlass(bottomBar, UIGlass.GlassBar);
         BuildBottomBar(bottomBar);
+
+        // ---- 右上：预测图表（放最后，且单独 try/catch，图表失败不影响控制） ----
+        try
+        {
+            RectTransform chartPanel = UIGlass.CreateRect("ChartPanel", content, new Vector2(1f, 1f), new Vector2(1f, 1f),
+                                                          new Vector2(-648f, -436f), new Vector2(-12f, -68f));
+            UIGlass.CreateGlass(chartPanel, UIGlass.GlassCard);
+            BuildChartPanel(chartPanel);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[DataPanelUI] 预测图表构建失败（不影响灌溉控制）：" + e.Message);
+        }
     }
 
     private void BuildFieldCards(RectTransform cards)
@@ -421,6 +451,14 @@ public class DataPanelUI : MonoBehaviour
         RectTransform chartArea = UIGlass.CreateRect("Chart", panel, new Vector2(0f, 0.30f), new Vector2(1f, 0.82f),
                                                      new Vector2(18f, 0f), new Vector2(-18f, -2f));
         UIGlass.CreateGlass(chartArea, UIGlass.GlassDark, outline: false);
+
+        // Graphic（MaskableGraphic）渲染必需 CanvasRenderer；部分引擎版本 AddComponent 不会自动补挂，
+        // 这里显式补挂，避免「缺少 CanvasRenderer」报错导致初始化中断。
+        if (chartArea.gameObject.GetComponent<CanvasRenderer>() == null)
+        {
+            chartArea.gameObject.AddComponent<CanvasRenderer>();
+        }
+
         _chart = chartArea.gameObject.AddComponent<UILineChart>();
         _chart.SetData(new[] { new[] { 50f, 50f, 50f, 50f } }, 0f, 100f);
 
