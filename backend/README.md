@@ -14,7 +14,7 @@
 | `IrrigationStats` | 灌溉事件统计（次数/时长/用水量/节水率） | ✅ 完成 |
 | `PredictionModel` | 加权回归 + 指数平滑 + 留一法自评估 | ✅ 完成 |
 | `MQTTBridge` | 订阅 `farm/device01/#`，下发控制指令 | ✅ 完成 |
-| `WeatherProvider` | OpenClaw AI 联网查询天气，融合预测 | ✅ 完成（可选） |
+| `WeatherProvider` | Open-Meteo 获取天气，融合预测 | ✅ 完成（可选） |
 | Flask 路由 | 7 个 HTTP API（见《系统接口契约v3.md》） | ✅ 完成 |
 
 ## 数据源模式（环境变量 DATA_SOURCE）
@@ -37,8 +37,11 @@ python irrigation_server.py
 ```bash
 export DATA_SOURCE=auto              # auto | simulated | mqtt
 export MQTT_HOST=127.0.0.1           # MQTT broker 地址
-export WEATHER_ENABLED=true          # OpenClaw 天气感知开关
-export WEATHER_CITY=大连             # 天气查询城市
+export WEATHER_ENABLED=true          # Open-Meteo 天气感知开关
+export WEATHER_CITY=大连             # 天气显示城市
+export WEATHER_REFRESH_SEC=7200       # 默认每 2 小时刷新
+export LATITUDE=38.9140
+export LONGITUDE=121.6147
 export HISTORY_DB_PATH=/path/db      # SQLite 数据库路径（默认脚本同目录）
 export PUMP_FLOW_RATE_LPM=1.5        # 水泵流量（升/分钟，用水量估算）
 export TRADITIONAL_MINUTES_PER_DAY=30  # 传统灌溉基线（分钟/天/路，节水率对比）
@@ -57,6 +60,10 @@ export TRADITIONAL_MINUTES_PER_DAY=30  # 传统灌溉基线（分钟/天/路，�
 | `/api/irrigation-stats` | GET | 灌溉统计（次数/用水量/节水率） |
 
 完整契约见 `docs/系统接口契约v3.md`。
+
+## MQTT 湿度模拟器
+
+运行 `python moisture_simulator.py` 可模拟 3 路土壤湿度数据并发布到 MQTT。默认主题为 `irrigation/sensor/+/moisture`，参数可通过环境变量配置；`deploy/systemd/` 提供了开机自启动服务模板。
 
 ## 部署状态
 

@@ -1,0 +1,20 @@
+[Unit]
+Description=Digital Twin Three-Channel Moisture Simulator
+After=network.target mosquitto.service irrigation-server.service
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStart=/usr/bin/python3 /home/ubuntu/moisture_simulator.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+Environment=MQTT_HOST=127.0.0.1
+Environment=MQTT_PORT=1883
+Environment=MQTT_BASE_TOPIC=farm/simulator01
+Environment=PUBLISH_INTERVAL=5
+
+[Install]
+WantedBy=multi-user.target

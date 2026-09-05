@@ -23,12 +23,12 @@ v3.1.0 变化：
 import os
 import json
 import math
-import re
 import sqlite3
 import time
 import random
-import subprocess
 import threading
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 
 from flask import Flask, jsonify, request
@@ -69,15 +69,12 @@ HISTORY_DB_PATH = os.environ.get(
 PUMP_FLOW_RATE_LPM = float(os.environ.get("PUMP_FLOW_RATE_LPM", "1.5"))          # 水泵流量（升/分钟）
 TRADITIONAL_MINUTES_PER_DAY = float(os.environ.get("TRADITIONAL_MINUTES_PER_DAY", "30"))  # 传统经验灌溉基线（每路每天分钟数）
 
-# ---------- 天气感知（OpenClaw AI 智能查询，可关闭） ----------
+# ---------- 天气感知（Open-Meteo，无需 API Key，可关闭） ----------
 WEATHER_ENABLED = os.environ.get("WEATHER_ENABLED", "true").lower() in ("1", "true", "yes")
 WEATHER_CITY = os.environ.get("WEATHER_CITY", "大连")
-WEATHER_REFRESH_SEC = int(os.environ.get("WEATHER_REFRESH_SEC", "1800"))  # 每 30 分钟刷新
-WEATHER_AGENT_ID = os.environ.get("WEATHER_AGENT_ID", "main")
-# OpenClaw CLI 位于 root 目录，Flask 以 ubuntu 用户运行时用 sudo 执行
-OPENCLAW_NODE = "/root/.nvm/versions/node/v22.22.1/bin/node"
-OPENCLAW_CLI = "/root/.local/share/pnpm/global/5/.pnpm/openclaw@2026.6.11/node_modules/openclaw/dist/index.js"
-
+WEATHER_REFRESH_SEC = int(os.environ.get("WEATHER_REFRESH_SEC", "7200"))  # 每 2 小时刷新
+WEATHER_LATITUDE = float(os.environ.get("WEATHER_LATITUDE", "38.914"))
+WEATHER_LONGITUDE = float(os.environ.get("WEATHER_LONGITUDE", "121.6147"))
 START_TIME = time.time()
 
 
@@ -515,7 +512,7 @@ class DataHub:
             if overall_mae is not None:
                 algo += f"（自评估误差 ±{overall_mae}%）"
             if weather_forecast:
-                algo += " + OpenClaw 天气感知"
+                algo += " + Open-Meteo 天气感知"
 
             return {
                 "predictions": predictions,
@@ -610,13 +607,13 @@ class DataHub:
 
 
 # ============================================================
-# 天气感知（OpenClaw AI 联网查询，可选，失败自动降级）
+# 天气感知（Open-Meteo 联网查询，可选，失败自动降级）
 # ============================================================
 class WeatherProvider:
-    """通过 OpenClaw AI agent 查询城市天气预报，缓存结果供预测融合。
+    """通过 Open-Meteo 查询城市天气预报，缓存结果供预测融合。
 
-    调用方式：sudo 执行 root 目录下的 openclaw CLI（Flask 以 ubuntu 用户运行）。
-    失败时不影响基本功能（预测自动回退到纯历史趋势）。
+    使用 HTTPS 公共 API，无需 API Key；失败时不影响基本功能，预测自动
+    回退到纯历史趋势。
     """
 
     def __init__(self):
@@ -624,8 +621,6 @@ class WeatherProvider:
         self._forecast = None
         self._updated_at = 0.0
         self._last_error = None
-        # 注意：Flask 以 ubuntu 用户运行，无法直接 stat /root 下文件（os.path.exists 恒 False），
-        # 因此不预检查，直接尝试 sudo 执行，失败由 _loop 捕获并降级。
         self.enabled = WEATHER_ENABLED
         if not self.enabled:
             print("[天气] 天气感知已禁用（WEATHER_ENABLED=false）")
@@ -642,70 +637,64 @@ class WeatherProvider:
             time.sleep(WEATHER_REFRESH_SEC)
 
     def refresh(self):
-        prompt = (
-            f"请查询{WEATHER_CITY}未来48小时天气。只输出一个JSON数组，不要任何其他文字。"
-            f"数组每个元素包含字段：date（YYYY-MM-DD字符串）、weather（中文描述）、"
-            f"temperature_c（数字）、rain_probability_percent（0到100的数字）。"
-        )
-        cmd = ["sudo", OPENCLAW_NODE, OPENCLAW_CLI, "agent", "--agent", WEATHER_AGENT_ID,
-               "-m", prompt, "--json", "--timeout", "90"]
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=150)
-        answer = self._extract_answer(proc.stdout)
-        forecast = self._parse_forecast(answer)
+        query = urllib.parse.urlencode({
+            "latitude": WEATHER_LATITUDE,
+            "longitude": WEATHER_LONGITUDE,
+            "daily": "weather_code,temperature_2m_max,precipitation_probability_max",
+            "timezone": "Asia/Shanghai",
+            "forecast_days": 3,
+        })
+        url = "https://api.open-meteo.com/v1/forecast?" + query
+        req = urllib.request.Request(url, headers={"User-Agent": "digital-twin-irrigation/3.1"})
+        with urllib.request.urlopen(req, timeout=20) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        daily = data.get("daily") or {}
+        dates = daily.get("time") or []
+        codes = daily.get("weather_code") or []
+        temperatures = daily.get("temperature_2m_max") or []
+        rain_probabilities = daily.get("precipitation_probability_max") or []
+        count = min(len(dates), len(codes), len(temperatures), len(rain_probabilities))
+        forecast = [
+            {
+                "date": dates[i],
+                "weather": self._weather_text(codes[i]),
+                "temperature_c": float(temperatures[i]),
+                "rain_probability_percent": float(rain_probabilities[i] or 0),
+            }
+            for i in range(count)
+        ]
+        if not forecast:
+            raise ValueError("Open-Meteo 未返回有效的逐日天气数据")
+
         with self._lock:
             self._forecast = forecast
             self._updated_at = time.time()
+            self._last_error = None
         if forecast:
             first = forecast[0]
             print(f"[天气] 已更新 {len(forecast)} 条预报，首条: {first.get('date')} {first.get('weather')}")
-        else:
-            print(f"[天气] 解析失败（回答前200字）: {str(answer)[:200]}")
 
     @staticmethod
-    def _extract_answer(stdout):
-        """从 openclaw --json 输出中递归提取 finalAssistantVisibleText。"""
-        try:
-            data = json.loads(stdout)
-        except Exception:
-            return stdout
-
-        def find(obj):
-            if isinstance(obj, dict):
-                if "finalAssistantVisibleText" in obj:
-                    return obj["finalAssistantVisibleText"]
-                for v in obj.values():
-                    r = find(v)
-                    if r:
-                        return r
-            elif isinstance(obj, list):
-                for v in obj:
-                    r = find(v)
-                    if r:
-                        return r
-            return None
-
-        return find(data) or stdout
-
-    @staticmethod
-    def _parse_forecast(text):
-        """从回答文本中提取 JSON 数组（支持 ```json 代码块或裸数组）。"""
-        if not text:
-            return None
-        candidates = []
-        m = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.S)
-        if m:
-            candidates.append(m.group(1))
-        m2 = re.search(r"\[\s*\{.*?\}\s*(?:,\s*\{.*?\}\s*)*\]", text, re.S)
-        if m2:
-            candidates.append(m2.group(0))
-        for cand in candidates:
-            try:
-                data = json.loads(cand)
-                if isinstance(data, list):
-                    return data
-            except Exception:
-                continue
-        return None
+    def _weather_text(code):
+        code = int(code)
+        if code == 0:
+            return "晴"
+        if code in (1, 2):
+            return "多云"
+        if code == 3:
+            return "阴"
+        if code in (45, 48):
+            return "雾"
+        if code in (51, 53, 55, 56, 57):
+            return "毛毛雨"
+        if code in (61, 63, 65, 66, 67, 80, 81, 82):
+            return "雨"
+        if code in (71, 73, 75, 77, 85, 86):
+            return "雪"
+        if code in (95, 96, 99):
+            return "雷雨"
+        return "未知"
 
     def get_forecast(self):
         with self._lock:
@@ -913,7 +902,7 @@ def get_system_status():
 
 @app.route('/api/weather', methods=['GET'])
 def get_weather():
-    """天气感知数据接口（OpenClaw AI 查询，可能为 None 表示不可用）。"""
+    """天气感知数据接口（Open-Meteo 查询，可能为 None 表示不可用）。"""
     try:
         if hub.weather is None:
             return jsonify({"enabled": False, "forecast": None})
@@ -943,7 +932,7 @@ def api_info():
             "GET /api/prediction?minutes=30": "获取3路土壤湿度预测（加权回归+自评估）",
             "POST /api/control-pump": "控制水泵灌溉（channel:1-3/all）",
             "GET /api/system-status": "获取系统运行状态",
-            "GET /api/weather": "天气感知（OpenClaw AI）",
+            "GET /api/weather": "天气感知（Open-Meteo）",
             "GET /api/irrigation-stats": "灌溉统计（次数/用水量/节水率）",
         },
         "data_format": "JSON",

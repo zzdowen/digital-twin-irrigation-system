@@ -153,7 +153,7 @@ GET /api/system-status
 }
 ```
 
-## 🌤️ 天气感知接口（可选，OpenClaw AI 联网查询）
+## 🌤️ 天气感知接口（可选，Open-Meteo）
 
 ```
 GET /api/weather
@@ -171,7 +171,8 @@ GET /api/weather
 }
 ```
 
-- 服务器每 30 分钟通过 OpenClaw AI 联网刷新一次
+- 服务端启动时立即获取天气，之后默认每 2 小时刷新缓存
+- Open-Meteo 请求无需 API Key，经纬度由服务端环境变量配置
 - `enabled=false` 或 `forecast=null` 表示不可用（前端隐藏天气显示即可）
 - 天气数据同时出现在 `/api/prediction` 的 `weather_forecast` 字段，并参与预测修正（降雨概率高 → 蒸发减缓）
 - Unity 数据模型：`WeatherStatus` / `WeatherEntry`（见 DataModels.cs）

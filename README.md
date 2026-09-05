@@ -14,14 +14,14 @@
 |------|------|--------------|
 | **灌溉滞后** | 无法实时掌握土壤水分，作物缺水才发现 | 3 路电容式土壤湿度传感器每 5 秒采集，数字孪生实时映射 |
 | **水资源浪费** | 经验灌溉过量/重复 | 湿度阈值自动触发 + 到时自停，按需灌溉 |
-| **缺少预测能力** | 只能回答"现在缺不缺水" | 加权回归预测未来 30~180 分钟湿度 + OpenClaw AI 天气感知 |
+| **缺少预测能力** | 只能回答"现在缺不缺水" | 加权回归预测未来 30~180 分钟湿度 + Open-Meteo 天气感知 |
 
 ## ✨ 核心功能
 
 1. **3 路独立灌溉**：3 个农田各自独立采集、独立预测、独立控制
 2. **实时监控**：土壤湿度 5 秒刷新，Unity 数字孪生同步显示（土壤颜色/LED/水流）
 3. **智能预测**：加权回归 + 指数平滑预测未来湿度曲线，留一法自评估模型误差
-4. **天气感知**：调用 OpenClaw AI 联网查询天气预报，降雨概率修正预测、驱动场景天气
+4. **天气感知**：服务启动时调用 Open-Meteo 获取天气，之后每 2 小时刷新缓存，用于降雨概率修正预测并驱动场景天气
 5. **自动/手动双模控制**：自动阈值灌溉 + 手动/定时控制 + 全路控制
 6. **数据持久化**：SQLite 落盘，历史曲线/灌溉事件重启不丢
 7. **节水统计**：灌溉次数/用水量/节水率自动统计，工程效果可量化验证
@@ -40,7 +40,7 @@
 ┌──────────────────────────▼─────────────────────────────────────┐
 │               数字孪生层 (Python Flask 后端)                      │
 │  DataHub 数据中枢 · 预测模型 · 自动决策 · SQLite 持久化            │
-│  灌溉统计/节水计算 · WeatherProvider(OpenClaw AI)                 │
+│  灌溉统计/节水计算 · WeatherProvider(Open-Meteo)                 │
 └───────────┬─────────────────────────────────────────────────────┘
             │ MQTT (端口 1883，主题 farm/device01/#)
 ┌───────────▼─────────────────────────────────────────────────────┐
@@ -80,7 +80,7 @@
 | `/api/prediction?minutes=30` | GET | 3 路湿度预测（加权回归 + 自评估误差 + 天气修正） |
 | `/api/control-pump` | POST | 水泵控制（channel 1-3 / all） |
 | `/api/system-status` | GET | 系统状态（含历史库与统计摘要） |
-| `/api/weather` | GET | 天气感知（OpenClaw AI，可选） |
+| `/api/weather` | GET | 天气感知（Open-Meteo，启动时获取并默认每 2 小时刷新） |
 | `/api/irrigation-stats` | GET | 灌溉统计（次数/用水量/节水率） |
 
 完整契约见 [`docs/系统接口契约v3.md`](docs/系统接口契约v3.md)。
@@ -91,8 +91,10 @@
 digital-twin-irrigation-system/
 ├── backend/                       # Python 后端
 │   ├── irrigation_server.py       # 数据服务器 v3.1.0（单文件全模块）
+│   ├── moisture_simulator.py      # 3 路 MQTT 湿度模拟发送器
 │   ├── requirements.txt
 │   └── README.md
+├── deploy/systemd/                # 云服务器 systemd 服务与覆盖配置
 ├── hardware/                      # 硬件
 │   ├── esp32/esp32_irrigation.ino # ESP32 固件（3路采集+3路控制+MQTT）
 │   ├── esp32/README.md
@@ -117,7 +119,7 @@ digital-twin-irrigation-system/
 | 层 | 技术 |
 |----|------|
 | 边缘设备 | ESP32 (Arduino) · PubSubClient · MQTT |
-| 后端 | Python 3.12 · Flask · paho-mqtt · SQLite · OpenClaw AI |
+| 后端 | Python 3.12 · Flask · paho-mqtt · SQLite · Open-Meteo |
 | 前端 | Unity (2021.3+) · C# · UnityWebRequest · 程序化建模 · Toon 着色器 |
 | 通信 | MQTT 1883（设备↔后端）· HTTP 5000（后端↔前端） |
 
@@ -130,6 +132,8 @@ cd backend
 pip install flask flask-cors paho-mqtt
 python irrigation_server.py        # 默认 3 路模拟数据 + auto 数据源
 ```
+
+天气服务无需 API Key：后端启动后立即请求 Open-Meteo，并按 `WEATHER_REFRESH_SEC`（默认 `7200` 秒）定时刷新。经纬度可通过 `LATITUDE`、`LONGITUDE` 配置。
 
 ### 2. 测试 API
 
