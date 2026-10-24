@@ -1,0 +1,1849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FARM 灌溉监控看板</title>
+<style>
+:root{
+  --main:#2c7fb8; --main-d:#22648f; --bg:#f5f7fa; --card:#ffffff;
+  --text:#1f2d3d; --muted:#6b7a8c; --line:#e3e9f0;
+  --ok:#1f9d63; --warn:#d98a00; --bad:#d64545; --info:#2c7fb8;
+  --c1:#2c7fb8; --c2:#1f9d63; --c3:#d9822b;
+  --radius:10px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--bg); color:var(--text); font-size:14px; line-height:1.55;
+  font-family:"Microsoft YaHei","PingFang SC","Hiragino Sans GB",system-ui,sans-serif;
+}
+.hidden{display:none !important;}
+.mono{font-family:"Consolas","Menlo","DejaVu Sans Mono",monospace;}
+.muted{color:var(--muted);}
+.small{font-size:12px;}
+h1,h2,h3{margin:0;font-weight:600;}
+b{font-weight:600;}
+
+/* ---------- 顶栏 ---------- */
+.topbar{
+  position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:14px;
+  padding:10px 18px; background:var(--card); border-bottom:1px solid var(--line);
+  box-shadow:0 1px 3px rgba(31,45,61,.05); flex-wrap:wrap;
+}
+.brand{font-size:16px; font-weight:700; color:var(--main); letter-spacing:.5px;}
+.brand span{font-size:12px;color:var(--muted);font-weight:400;margin-left:6px;}
+.nav{display:flex; gap:6px; flex-wrap:wrap; flex:1;}
+.navbtn{
+  border:1px solid transparent; background:transparent; color:var(--text);
+  font:inherit; padding:6px 12px; border-radius:var(--radius); cursor:pointer;
+  display:inline-flex; align-items:center; gap:5px;
+}
+.navbtn:hover{background:#eef4f9;}
+.navbtn.active{background:var(--main); color:#fff;}
+.badge{
+  display:inline-block; min-width:18px; padding:0 5px; border-radius:9px;
+  background:var(--bad); color:#fff; font-size:11px; line-height:18px; text-align:center;
+}
+.userbox{display:flex; align-items:center; gap:10px; color:var(--muted); font-size:13px;}
+
+/* ---------- 通用 ---------- */
+.view{padding:18px; max-width:1280px; margin:0 auto;}
+.card{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:14px 16px; box-shadow:0 1px 2px rgba(31,45,61,.04);
+}
+.card + .card{margin-top:14px;}
+.narrow{max-width:520px; margin:24px auto;}
+.toolbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+.toolbar .spacer{flex:1;}
+.grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
+.grid2{display:grid; grid-template-columns:repeat(2,1fr); gap:14px;}
+@media (max-width:860px){.grid3,.grid2{grid-template-columns:1fr;}}
+.btn{
+  font:inherit; padding:7px 14px; border-radius:var(--radius); cursor:pointer;
+  border:1px solid var(--line); background:#fff; color:var(--text);
+}
+.btn:hover{background:#f2f6fa;}
+.btn.primary{background:var(--main); border-color:var(--main); color:#fff;}
+.btn.primary:hover{background:var(--main-d);}
+.btn.danger{background:var(--bad); border-color:var(--bad); color:#fff;}
+.btn.ghost{background:transparent;}
+.btn.block{width:100%; padding:10px;}
+.btn:disabled{opacity:.55; cursor:not-allowed;}
+.seg{display:inline-flex; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden;}
+.seg .btn{border:0; border-radius:0; border-right:1px solid var(--line);}
+.seg .btn:last-child{border-right:0;}
+.seg .btn.on{background:var(--main); color:#fff;}
+.chip{
+  display:inline-block; padding:1px 9px; border-radius:20px; font-size:12px;
+  border:1px solid var(--line); background:#fff; color:var(--muted);
+}
+.chip.ok{color:var(--ok); border-color:var(--ok);}
+.chip.bad{color:var(--bad); border-color:var(--bad); background:#fdeeee;}
+.chip.warn{color:var(--warn); border-color:var(--warn);}
+.chip.main{color:var(--main); border-color:var(--main);}
+.fld{display:block; margin-bottom:10px;}
+.fld > span{display:block; font-size:13px; color:var(--muted); margin-bottom:4px;}
+.fld input,.fld select{
+  width:100%; font:inherit; padding:8px 10px; border:1px solid var(--line);
+  border-radius:8px; background:#fff; color:var(--text);
+}
+.fld input:focus,.fld select:focus{outline:2px solid #cfe3f2; border-color:var(--main);}
+.err{color:var(--bad); font-size:13px; margin:6px 0;}
+.warnbar{
+  background:#fff6ec; border:1px solid #f0d3ad; color:#8a5a00;
+  border-radius:var(--radius); padding:9px 12px; margin-bottom:12px; font-size:13px;
+}
+.empty,.loading{color:var(--muted); padding:22px 6px; text-align:center;}
+
+/* ---------- 登录 / 改密门 ---------- */
+.gate{
+  min-height:100vh; display:flex; align-items:center; justify-content:center;
+  background:linear-gradient(160deg,#eef4f9 0%,#f5f7fa 60%);
+  padding:20px;
+}
+.gate-card{
+  width:100%; max-width:380px; background:var(--card); border:1px solid var(--line);
+  border-radius:14px; padding:26px 24px; box-shadow:0 8px 28px rgba(31,45,61,.10);
+}
+.gate-card h1{font-size:19px; color:var(--main); text-align:center; margin-bottom:4px;}
+.gate-card h2{font-size:17px; color:var(--main); text-align:center; margin-bottom:4px;}
+.gate-card .sub{text-align:center; color:var(--muted); font-size:13px; margin:0 0 18px;}
+
+/* ---------- 总览 ---------- */
+.chcard{padding:14px;}
+.chhead{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+.chname{font-weight:600;}
+.chbody{display:flex; align-items:center; gap:14px;}
+.ring{width:96px; height:96px; flex:0 0 96px;}
+.ring-bg{fill:none; stroke:#eef2f7; stroke-width:11;}
+.ring-fg{fill:none; stroke-width:11; stroke-linecap:round; transition:stroke-dashoffset .4s;}
+.ring-txt{font-size:15px; font-weight:700; fill:var(--text);}
+.bignum{font-size:34px; font-weight:700; line-height:1.1;}
+.bignum .unit{font-size:15px; font-weight:500; margin-left:2px; color:var(--muted);}
+.kv{font-size:13px; color:var(--muted);}
+.kv b.on{color:var(--ok);}
+.kv b.off{color:var(--muted);}
+.sumrow{display:flex; gap:22px; flex-wrap:wrap; align-items:center;}
+.sumitem{min-width:120px;}
+.sumitem.wide{min-width:230px;}
+.sumitem .lab{font-size:12px; color:var(--muted);}
+.sumitem .val{font-size:20px; font-weight:700;}
+
+/* ---------- 时长计时器 ---------- */
+.durwrap{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+.dur{display:inline-flex; align-items:baseline; gap:2px;}
+.dur .du{display:inline-flex; align-items:baseline; gap:2px;}
+.dur .du b{font-size:20px; font-weight:700; font-variant-numeric:tabular-nums;
+  min-width:1.2em; text-align:right;}
+.dur .du i{font-style:normal; font-size:12px; color:var(--muted); margin-right:5px;}
+.livetag{font-size:11px; color:var(--ok); border:1px solid var(--ok);
+  border-radius:10px; padding:1px 7px; line-height:1.6;}
+.livetag::before{content:"●"; margin-right:4px; animation:blink 1.6s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.25;}}
+.durwhy{font-size:11px; color:var(--warn); margin-top:3px;}
+
+/* ---------- SVG 图表 ---------- */
+.chart{width:100%; height:auto; display:block;}
+.grid{stroke:#e9eef5; stroke-width:1;}
+.axis{fill:var(--muted); font-size:12px; font-family:"Consolas","Menlo",monospace;}
+.line{fill:none; stroke-width:2.2; stroke-linejoin:round; stroke-linecap:round;}
+.band-bg{fill:#eef2f7;}
+.band-on{fill:var(--main);}
+.bar{fill:var(--main);}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-top:8px; font-size:13px;}
+.legend i{display:inline-block; width:12px; height:4px; border-radius:2px; margin-right:6px; vertical-align:middle;}
+.legend .dt i{height:2px; background-image:linear-gradient(90deg,currentColor 50%,transparent 0); background-size:6px 2px;}
+
+/* ---------- 表格 ---------- */
+table{width:100%; border-collapse:collapse; font-size:13px;}
+th,td{padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:middle;}
+th{color:var(--muted); font-weight:500; background:#fafcfe;}
+tr:last-child td{border-bottom:0;}
+td.num{font-family:"Consolas","Menlo",monospace;}
+.tbwrap{overflow-x:auto;}
+
+/* ---------- 告警 ---------- */
+.alrow{display:flex; gap:12px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--line);}
+.alrow:last-child{border-bottom:0;}
+.lv{width:56px; flex:0 0 56px; text-align:center; font-size:12px; border-radius:6px; padding:2px 0; color:#fff;}
+.lv.critical{background:var(--bad);}
+.lv.warning{background:var(--warn);}
+.lv.info{background:var(--info);}
+.albody{flex:1;}
+.altime{color:var(--muted); font-size:12px; font-family:"Consolas","Menlo",monospace;}
+
+/* ---------- 天气 ---------- */
+.wcard{text-align:center;}
+.wdate{font-size:13px; color:var(--muted); font-family:"Consolas","Menlo",monospace;}
+.ww{font-size:17px; font-weight:600; margin:6px 0;}
+.wt{font-size:26px; font-weight:700; color:var(--main);}
+.wt .unit{font-size:14px; color:var(--muted); font-weight:500;}
+
+/* ---------- 弹窗 / toast ---------- */
+.modal{
+  position:fixed; inset:0; background:rgba(20,32,44,.42); z-index:50;
+  display:flex; align-items:center; justify-content:center; padding:18px;
+}
+.modal-box{
+  width:100%; max-width:420px; background:#fff; border-radius:12px; padding:18px 20px;
+  box-shadow:0 12px 40px rgba(0,0,0,.22);
+}
+.modal-title{font-size:16px; font-weight:600; margin-bottom:8px;}
+.modal-body{color:var(--text); font-size:14px; margin-bottom:16px; white-space:pre-wrap;}
+.modal-foot{display:flex; justify-content:flex-end; gap:10px;}
+.toasts{position:fixed; right:16px; bottom:16px; z-index:80; display:flex; flex-direction:column; gap:8px;}
+.toast{
+  background:#22313f; color:#fff; padding:9px 14px; border-radius:8px; font-size:13px;
+  box-shadow:0 6px 20px rgba(0,0,0,.2); max-width:340px;
+}
+.toast.ok{background:var(--ok);}
+.toast.bad{background:var(--bad);}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <h1>FARM 灌溉监控看板</h1>
+    <p class="sub">请使用农场账号登录</p>
+    <label class="fld"><span>用户名</span>
+      <input id="login-user" type="text" autocomplete="username" data-enter="login" spellcheck="false">
+    </label>
+    <label class="fld"><span>密码</span>
+      <input id="login-pass" type="password" autocomplete="current-password" data-enter="login">
+    </label>
+    <div id="gate-err" class="err hidden"></div>
+    <button class="btn primary block" data-act="login">登 录</button>
+  </div>
+</div>
+
+<div id="chpw" class="gate hidden">
+  <div class="gate-card">
+    <h2>请先修改初始密码</h2>
+    <p class="sub">首次登录必须修改密码后才能进入看板，新密码至少 8 位。</p>
+    <label class="fld"><span>原密码</span>
+      <input id="fo-old" type="password" autocomplete="current-password">
+    </label>
+    <label class="fld"><span>新密码（至少 8 位）</span>
+      <input id="fo-new" type="password" autocomplete="new-password">
+    </label>
+    <label class="fld"><span>确认新密码</span>
+      <input id="fo-new2" type="password" autocomplete="new-password" data-enter="forcedpw">
+    </label>
+    <div id="fo-err" class="err hidden"></div>
+    <button class="btn primary block" data-act="forcedpw">确认修改</button>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <header class="topbar">
+    <div class="brand">FARM 灌溉监控<span>灌溉服务只读监控</span></div>
+    <nav id="nav" class="nav"></nav>
+    <div class="userbox">
+      <span id="whoami"></span>
+      <button class="btn ghost" data-act="logout">退出</button>
+    </div>
+  </header>
+  <div class="view">
+    <div id="banner"></div>
+    <main id="view"></main>
+    <div class="muted small" style="margin-top:16px;">
+      数据来自灌溉服务上游接口，按真实值展示，未做任何修饰。
+    </div>
+  </div>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-box">
+    <div id="modal-title" class="modal-title"></div>
+    <div id="modal-body" class="modal-body"></div>
+    <div class="modal-foot">
+      <button class="btn ghost" data-act="cancel">取消</button>
+      <button class="btn primary" data-act="confirm">确认</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =========================================================
+   * FARM 看板前端（单文件 / 原生 ES5 / 零外网依赖）
+   * 契约见 CONTRACT.md。接口一律相对路径，页面与后端同源。
+   * ========================================================= */
+
+  var RANK = { viewer: 1, operator: 2, admin: 3 };
+  var ROLE_CN = { viewer: '查看者', operator: '操作员', admin: '管理员' };
+  var RULE_CN = {
+    dry: '缺水', wet: '过湿', long_irrigation: '长时间灌溉',
+    no_data: '数据中断', upstream_down: '上游不可达'
+  };
+  var LEVEL_CN = { critical: '严重', warning: '警告', info: '提示' };
+  var CH_COLOR = ['var(--c1)', 'var(--c2)', 'var(--c3)'];
+  var ST_CN = { normal: '正常', dry: '缺水', wet: '过湿', offline: '离线' };
+  var ST_COLOR = {
+    normal: 'var(--ok)', dry: 'var(--warn)', wet: 'var(--info)', offline: 'var(--bad)'
+  };
+
+  var NAVS = [
+    { id: 'overview',   name: '总览', min: 'viewer' },
+    { id: 'trend',      name: '趋势', min: 'viewer' },
+    { id: 'prediction', name: '预测', min: 'viewer' },
+    { id: 'events',     name: '事件', min: 'viewer' },
+    { id: 'weather',    name: '天气', min: 'viewer' },
+    { id: 'alerts',     name: '告警', min: 'viewer' },
+    { id: 'control',    name: '控制', min: 'operator' },
+    { id: 'accounts',   name: '账号', min: 'admin' },
+    { id: 'chpw',       name: '改密', min: 'viewer' }
+  ];
+
+  /* 两次轮询之间最多补间多少秒。后端有 TIMER_FRESH_SEC=10 秒的可信窗口，
+     前端补间留得比它短，保证「前端猜的」永远比「后端敢确认的」保守。 */
+  var INTERP_MAX = 8;
+
+  var st = {
+    view: '',
+    hours: 24,
+    minutes: 30,
+    days: 7,
+    ov: null,
+    modalFn: null,
+    timer: 0,
+    tick: 0,
+    dur: null
+  };
+
+  /* ---------------- 小工具 ---------------- */
+  function el(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    if (s === null || s === undefined) { return ''; }
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function fmt1(v) {
+    if (v === null || v === undefined || v === '') { return '—'; }
+    var n = Number(v);
+    if (!isFinite(n)) { return '—'; }
+    return n.toFixed(1);
+  }
+
+  function fmtInt(v) {
+    if (v === null || v === undefined || v === '') { return '—'; }
+    var n = Number(v);
+    if (!isFinite(n)) { return '—'; }
+    return String(Math.round(n));
+  }
+
+  function fmtNum(v) {
+    var n = Number(v);
+    if (!isFinite(n)) { return '0'; }
+    if (Math.abs(n - Math.round(n)) < 0.05) { return String(Math.round(n)); }
+    return n.toFixed(1);
+  }
+
+  function fmtAxis(v) {
+    if (v >= 1000) { return (v / 1000).toFixed(1) + 'k'; }
+    if (Math.abs(v - Math.round(v)) < 0.05) { return String(Math.round(v)); }
+    return v.toFixed(1);
+  }
+
+  function niceTime(ts) {
+    var d = new Date(Number(ts) * 1000);
+    if (isNaN(d.getTime())) { return '—'; }
+    return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+      pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+
+  function shortDate(s) {
+    var t = String(s === null || s === undefined ? '' : s);
+    return t.length >= 10 ? t.substr(5, 5) : t;
+  }
+
+  /* 上游时间戳是 "2026-10-24T18:41:37" 这类字符串，只做显示裁剪 */
+  function fmtStamp(s) {
+    if (!s) { return '—'; }
+    var t = String(s).replace('T', ' ');
+    return t.length >= 16 ? t.substr(0, 16) : t;
+  }
+
+  /* 契约 §5.1 的 irrigation_duration 单位未写明，上游实测按“秒”给出，这里按秒换算 */
+  function fmtDurSec(sec) {
+    if (sec === null || sec === undefined || sec === '') { return '—'; }
+    var n = Number(sec);
+    if (!isFinite(n)) { return '—'; }
+    if (n < 60) { return fmtInt(n) + ' 秒'; }
+    return (n / 60).toFixed(1) + ' 分钟';
+  }
+
+  /* 长时长：xx天xx小时xx分xx秒。天/时/分为 0 时省略（秒始终显示）。 */
+  function fmtDurLong(sec) {
+    if (sec === null || sec === undefined || sec === '') { return '—'; }
+    var n = Math.floor(Number(sec));
+    if (!isFinite(n) || n < 0) { return '—'; }
+    var d = Math.floor(n / 86400);
+    var h = Math.floor((n % 86400) / 3600);
+    var m = Math.floor((n % 3600) / 60);
+    var s = n % 60;
+    var out = '';
+    if (d > 0) { out += d + ' 天 '; }
+    if (d > 0 || h > 0) { out += h + ' 小时 '; }
+    if (d > 0 || h > 0 || m > 0) { out += m + ' 分 '; }
+    return out + pad2(s) + ' 秒';
+  }
+
+  /* 拆分给计时器用：返回 [{v, u}]，前端每秒只改数字不动单位 */
+  function durParts(sec) {
+    var n = Math.max(0, Math.floor(Number(sec) || 0));
+    var d = Math.floor(n / 86400);
+    var h = Math.floor((n % 86400) / 3600);
+    var m = Math.floor((n % 3600) / 60);
+    var s = n % 60;
+    var out = [];
+    if (d > 0) { out.push([d, '天']); }
+    if (d > 0 || h > 0) { out.push([h, '小时']); }
+    if (d > 0 || h > 0 || m > 0) { out.push([m, '分']); }
+    out.push([s, '秒']);
+    return out;
+  }
+
+  function durHtml(sec, id) {
+    var p = durParts(sec), h = '', i;
+    for (i = 0; i < p.length; i++) { h += partHtml(p[i]); }
+    return '<span class="dur"' + (id ? ' id="' + id + '"' : '') + '>' + h + '</span>';
+  }
+
+  function findNear(pts, ts) {
+    if (!pts || !pts.length) { return null; }
+    var best = null, bd = Infinity, i, d, v;
+    for (i = 0; i < pts.length; i++) {
+      d = Math.abs(Number(pts[i][0]) - ts);
+      if (d < bd) { bd = d; best = pts[i][1]; }
+    }
+    if (best === null || best === undefined) { return null; }
+    v = Number(best);
+    return isFinite(v) ? v : null;
+  }
+
+  /* ---------------- 会话 / 请求 ---------------- */
+  function clearSession() {
+    window.localStorage.removeItem('farm_token');
+    window.localStorage.removeItem('farm_role');
+    window.localStorage.removeItem('farm_user');
+    window.localStorage.removeItem('farm_must_change');
+  }
+
+  function handle401() {
+    clearSession();
+    st.ov = null;
+    showGate();
+    toast('未登录或登录已过期，请重新登录', 'bad');
+  }
+
+  function api(method, path, body, cb) {
+    var xhr = new XMLHttpRequest();
+    try {
+      xhr.open(method, path, true);
+    } catch (e) {
+      if (cb) { cb(null, 0); }
+      return;
+    }
+    xhr.setRequestHeader('Accept', 'application/json');
+    if (body) { xhr.setRequestHeader('Content-Type', 'application/json'); }
+    var tk = window.localStorage.getItem('farm_token') || '';
+    if (tk) { xhr.setRequestHeader('Authorization', 'Bearer ' + tk); }
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) { return; }
+      var d = null;
+      try { d = JSON.parse(xhr.responseText); } catch (e2) { d = null; }
+      if (xhr.status === 401) { handle401(); return; }
+      if (cb) { cb(d, xhr.status); }
+    };
+    try {
+      xhr.send(body ? JSON.stringify(body) : null);
+    } catch (e3) {
+      if (cb) { cb(null, 0); }
+    }
+  }
+
+  var VIEWS = {};
+
+  function go(id) {
+    if (!VIEWS[id]) { return; }
+    var min = 'viewer', i;
+    for (i = 0; i < NAVS.length; i++) {
+      if (NAVS[i].id === id) { min = NAVS[i].min; }
+    }
+    if (!canDo(min)) {
+      el('view').innerHTML = '<div class="card"><div class="empty">当前账号没有该操作权限。</div></div>';
+      return;
+    }
+    st.view = id;
+    if (el('nav')) { el('nav').innerHTML = navHtml(); }
+    VIEWS[id]();
+    window.scrollTo(0, 0);
+  }
+
+  function canDo(min) {
+    var r = window.localStorage.getItem('farm_role') || '';
+    return (RANK[r] || 0) >= (RANK[min] || 99);
+  }
+
+  function navHtml() {
+    var h = '', i, n, extra;
+    for (i = 0; i < NAVS.length; i++) {
+      n = NAVS[i];
+      if (!canDo(n.min)) { continue; }
+      extra = '';
+      if (n.id === 'alerts' && st.ov && Number(st.ov.alert_badge) > 0) {
+        extra = '<span class="badge">' + esc(fmtInt(st.ov.alert_badge)) + '</span>';
+      }
+      h += '<button class="navbtn' + (st.view === n.id ? ' active' : '') +
+        '" data-act="nav" data-view="' + n.id + '">' + n.name + extra + '</button>';
+    }
+    return h;
+  }
+
+  /* ---------------- toast / 弹窗 ---------------- */
+  function toast(msg, kind) {
+    var box = el('toasts');
+    if (!box) { return; }
+    var d = document.createElement('div');
+    d.className = 'toast' + (kind ? ' ' + kind : '');
+    d.textContent = String(msg);
+    box.appendChild(d);
+    window.setTimeout(function () {
+      if (d.parentNode) { d.parentNode.removeChild(d); }
+    }, 3600);
+  }
+
+  function openConfirm(title, body, fn) {
+    st.modalFn = fn;
+    el('modal-title').textContent = title;
+    el('modal-body').textContent = body;
+    el('modal').className = 'modal';
+  }
+
+  function openPrompt(title, label, fn) {
+    st.modalFn = fn;
+    el('modal-title').textContent = title;
+    el('modal-body').innerHTML = '<label class="fld"><span>' + esc(label) +
+      '</span><input id="modal-input" type="password" autocomplete="new-password"></label>';
+    el('modal').className = 'modal';
+    var inp = el('modal-input');
+    if (inp) { inp.focus(); }
+  }
+
+  function closeModal() {
+    st.modalFn = null;
+    el('modal').className = 'modal hidden';
+  }
+
+  function showErr(id, msg) {
+    var e = el(id);
+    if (!e) { return; }
+    if (msg) {
+      e.innerHTML = esc(msg);
+      e.className = 'err';
+    } else {
+      e.className = 'err hidden';
+    }
+  }
+
+  /* ---------------- SVG 图表基元 ---------------- */
+  function ring(pct, color, text) {
+    var r = 44, c = 2 * Math.PI * r;
+    var p = Math.max(0, Math.min(100, Number(pct) || 0));
+    var off = c * (1 - p / 100);
+    return '<svg class="ring" viewBox="0 0 110 110">' +
+      '<circle class="ring-bg" cx="55" cy="55" r="' + r + '"/>' +
+      '<circle class="ring-fg" cx="55" cy="55" r="' + r + '" style="stroke:' + color +
+      '" stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + off.toFixed(2) +
+      '" transform="rotate(-90 55 55)"/>' +
+      '<text class="ring-txt" x="55" y="61" text-anchor="middle">' + esc(text) + '</text>' +
+      '</svg>';
+  }
+
+  function legend(items) {
+    var h = '<div class="legend">', i;
+    for (i = 0; i < items.length; i++) {
+      h += '<span' + (items[i].dash ? ' class="dt"' : '') + ' style="color:' +
+        items[i].color + '"><i style="background:' + items[i].color + '"></i>' +
+        esc(items[i].label) + '</span>';
+    }
+    return h + '</div>';
+  }
+
+  /* 折线图：series=[{label,color,points:[[ts,val]],dash}] */
+  function chartLine(series, opt) {
+    opt = opt || {};
+    var W = 1000;
+    var H = opt.height || 320;
+    var ml = 58, mr = 20, mt = 18, mb = 34;
+    var iw = W - ml - mr, ih = H - mt - mb;
+    var ymin = (opt.ymin === undefined) ? 0 : opt.ymin;
+    var ymax = (opt.ymax === undefined) ? 100 : opt.ymax;
+    var i, j, pts, t, v, segs, cur, run;
+    var xmin = Infinity, xmax = -Infinity;
+
+    for (i = 0; i < series.length; i++) {
+      pts = series[i].points || [];
+      for (j = 0; j < pts.length; j++) {
+        t = Number(pts[j][0]);
+        if (isFinite(t)) {
+          if (t < xmin) { xmin = t; }
+          if (t > xmax) { xmax = t; }
+        }
+      }
+    }
+    if (!isFinite(xmin) || !isFinite(xmax)) { return ''; }
+    if (xmax <= xmin) { xmax = xmin + 60; }
+
+    var sx = iw / (xmax - xmin);
+    var sy = ih / (ymax - ymin);
+    function X(tt) { return ml + (tt - xmin) * sx; }
+    function Y(vv) { return mt + ih - (vv - ymin) * sy; }
+
+    var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">';
+    for (i = 0; i <= 4; i++) {
+      v = ymin + (ymax - ymin) * i / 4;
+      s += '<line class="grid" x1="' + ml + '" y1="' + Y(v).toFixed(1) +
+        '" x2="' + (W - mr) + '" y2="' + Y(v).toFixed(1) + '"/>';
+      s += '<text class="axis" x="' + (ml - 10) + '" y="' + (Y(v) + 4).toFixed(1) +
+        '" text-anchor="end">' + fmtAxis(v) + esc(opt.suffix || '') + '</text>';
+    }
+    for (i = 0; i <= 4; i++) {
+      t = xmin + (xmax - xmin) * i / 4;
+      s += '<line class="grid" x1="' + X(t).toFixed(1) + '" y1="' + mt +
+        '" x2="' + X(t).toFixed(1) + '" y2="' + (mt + ih) + '"/>';
+      s += '<text class="axis" x="' + X(t).toFixed(1) + '" y="' + (H - 12) +
+        '" text-anchor="middle">' + esc(niceTime(t)) + '</text>';
+    }
+
+    for (i = 0; i < series.length; i++) {
+      pts = series[i].points || [];
+      segs = [];
+      cur = [];
+      for (j = 0; j < pts.length; j++) {
+        t = Number(pts[j][0]);
+        v = pts[j][1];
+        if (v === null || v === undefined || !isFinite(Number(v))) {
+          if (cur.length) { segs.push(cur); cur = []; }
+          continue;
+        }
+        cur.push(X(t).toFixed(1) + ',' + Y(Number(v)).toFixed(1));
+      }
+      if (cur.length) { segs.push(cur); }
+      for (j = 0; j < segs.length; j++) {
+        if (segs[j].length === 1) {
+          s += '<circle r="2.5" cx="' + segs[j][0].split(',')[0] + '" cy="' +
+            segs[j][0].split(',')[1] + '" style="fill:' + series[i].color + '"/>';
+          continue;
+        }
+        s += '<polyline class="line" style="stroke:' + series[i].color +
+          (series[i].dash ? ';stroke-dasharray:7 5' : '') +
+          '" points="' + segs[j].join(' ') + '"/>';
+      }
+    }
+
+    if (opt.mark) {
+      var mx = X(Number(opt.mark));
+      if (mx >= ml && mx <= W - mr) {
+        s += '<line x1="' + mx.toFixed(1) + '" y1="' + mt + '" x2="' + mx.toFixed(1) +
+          '" y2="' + (mt + ih) + '" style="stroke:#9aa8b8;stroke-width:1;stroke-dasharray:4 4"/>';
+        s += '<text class="axis" x="' + mx.toFixed(1) + '" y="' + (mt - 5) +
+          '" text-anchor="middle">此刻</text>';
+      }
+    }
+
+    var base = (series[0] && series[0].points) ? series[0].points : [];
+    if (base.length > 1) {
+      var bw = iw / base.length;
+      for (j = 0; j < base.length; j++) {
+        var tt = Number(base[j][0]);
+        var tip = niceTime(tt);
+        for (i = 0; i < series.length; i++) {
+          run = findNear(series[i].points, tt);
+          tip += '\n' + series[i].label + '：' + (run === null ? '—' : fmt1(run));
+        }
+        s += '<rect x="' + (ml + j * bw).toFixed(1) + '" y="' + mt + '" width="' +
+          bw.toFixed(1) + '" height="' + ih + '" fill="transparent"><title>' +
+          esc(tip) + '</title></rect>';
+      }
+    }
+    return s + '</svg>';
+  }
+
+  /* 泵状态阶梯带：与折线图共用 x 轴（同 viewBox 宽度 + 同左右边距） */
+  function chartPump(series) {
+    var i, j, pts, t, xmin = Infinity, xmax = -Infinity;
+    var rows = [];
+    for (i = 0; i < series.length; i++) {
+      pts = series[i].pump || [];
+      if (!pts.length) { continue; }
+      rows.push({ channel: i + 1, pts: pts });
+      for (j = 0; j < pts.length; j++) {
+        t = Number(pts[j][0]);
+        if (isFinite(t)) {
+          if (t < xmin) { xmin = t; }
+          if (t > xmax) { xmax = t; }
+        }
+      }
+    }
+    if (!rows.length || !isFinite(xmin) || xmax <= xmin) { return ''; }
+
+    var W = 1000, ml = 58, mr = 20, iw = W - ml - mr;
+    var rowH = 30, top = 20, H = top + rowH * rows.length + 6;
+    var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">';
+    for (i = 0; i < rows.length; i++) {
+      pts = rows[i].pts;
+      var y = top + i * rowH;
+      s += '<text class="axis" x="' + (ml - 10) + '" y="' + (y + rowH / 2 + 4) +
+        '" text-anchor="end">' + rows[i].channel + ' 号泵</text>';
+      s += '<rect class="band-bg" x="' + ml + '" y="' + y + '" width="' + iw +
+        '" height="' + (rowH - 12) + '" rx="3"/>';
+      for (j = 0; j < pts.length; j++) {
+        if (Number(pts[j][1]) !== 1) { continue; }
+        var x0 = ml + (Number(pts[j][0]) - xmin) / (xmax - xmin) * iw;
+        var x1;
+        if (j + 1 < pts.length) {
+          x1 = ml + (Number(pts[j + 1][0]) - xmin) / (xmax - xmin) * iw;
+        } else {
+          x1 = Math.min(ml + iw, x0 + 4);
+        }
+        if (x1 <= x0) { x1 = x0 + 2; }
+        s += '<rect class="band-on" x="' + x0.toFixed(1) + '" y="' + y + '" width="' +
+          (x1 - x0).toFixed(1) + '" height="' + (rowH - 12) + '" rx="2" style="fill:' +
+          CH_COLOR[i % 3] + '"><title>' + esc(rows[i].channel + ' 号泵 运行中 · ' +
+          niceTime(pts[j][0])) + '</title></rect>';
+      }
+    }
+    return s + '</svg>';
+  }
+
+  /* 柱状图：labels=字符串数组；series=[{label,color,values:[]}]，每序列独立缩放 */
+  function chartBars(labels, series, opt) {
+    opt = opt || {};
+    var W = 1000, H = opt.height || 260;
+    var ml = 58, mr = 62, mt = 18, mb = 42;
+    var iw = W - ml - mr, ih = H - mt - mb;
+    var n = labels.length, i, j, v;
+    if (!n || !series.length) { return ''; }
+    var gmax = [];
+    for (i = 0; i < series.length; i++) {
+      var mx = 0;
+      for (j = 0; j < series[i].values.length; j++) {
+        v = Number(series[i].values[j]) || 0;
+        if (v > mx) { mx = v; }
+      }
+      gmax.push(mx > 0 ? mx : 1);
+    }
+    var slot = iw / n;
+    var bw = slot * 0.66 / series.length;
+    var s = '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '">';
+    for (i = 0; i <= 4; i++) {
+      var yy = mt + ih - ih * i / 4;
+      s += '<line class="grid" x1="' + ml + '" y1="' + yy.toFixed(1) + '" x2="' +
+        (W - mr) + '" y2="' + yy.toFixed(1) + '"/>';
+      s += '<text class="axis" x="' + (ml - 8) + '" y="' + (yy + 4).toFixed(1) +
+        '" text-anchor="end">' + esc(fmtAxis(gmax[0] * i / 4)) + '</text>';
+      if (series.length > 1) {
+        s += '<text class="axis" x="' + (W - mr + 8) + '" y="' + (yy + 4).toFixed(1) +
+          '" text-anchor="start">' + esc(fmtAxis(gmax[1] * i / 4)) + '</text>';
+      }
+    }
+    var every = Math.ceil(n / 10);
+    for (j = 0; j < n; j++) {
+      var x0 = ml + j * slot;
+      for (i = 0; i < series.length; i++) {
+        v = Number(series[i].values[j]) || 0;
+        var hh = ih * v / gmax[i];
+        var bx = x0 + slot * 0.17 + i * bw;
+        s += '<rect class="bar" x="' + bx.toFixed(1) + '" y="' + (mt + ih - hh).toFixed(1) +
+          '" width="' + (bw - 2).toFixed(1) + '" height="' + Math.max(0, hh).toFixed(1) +
+          '" rx="2" style="fill:' + series[i].color + '"><title>' +
+          esc(labels[j] + ' · ' + series[i].label + '：' + fmtNum(v)) + '</title></rect>';
+      }
+      if (n <= 12 || j % every === 0) {
+        s += '<text class="axis" x="' + (x0 + slot / 2).toFixed(1) + '" y="' + (H - 12) +
+          '" text-anchor="middle">' + esc(shortDate(labels[j])) + '</text>';
+      }
+    }
+    return s + '</svg>';
+  }
+
+  /* ---------------- 总览 ---------------- */
+  function viewOverview() {
+    el('view').innerHTML = '<div class="card"><div class="loading">正在加载总览数据…</div></div>';
+    loadOverview();
+  }
+
+  function loadOverview() {
+    api('GET', '/api/overview', null, function (d) {
+      if (!el('view') || st.view !== 'overview') { return; }
+      if (!d || d.status !== 'ok') {
+        el('view').innerHTML = '<div class="card"><div class="empty">' +
+          esc((d && d.message) || '总览数据加载失败，请稍后重试。') + '</div></div>';
+        return;
+      }
+      st.ov = d;
+      el('view').innerHTML = paintOverview(d);
+      if (el('nav')) { el('nav').innerHTML = navHtml(); }
+      if (el('banner')) { el('banner').innerHTML = d.upstream_ok === false ?
+        '<div class="warnbar">灌溉服务暂时不可达，以下为最后一次成功采集的数据。</div>' : ''; }
+    });
+  }
+
+  function chStatus(c) {
+    if (c.status) { return c.status; }
+    var v = Number(c.soil_moisture);
+    if (!isFinite(v)) { return 'offline'; }
+    if (v < 30) { return 'dry'; }
+    if (v > 95) { return 'wet'; }
+    return 'normal';
+  }
+
+  function freshChip(d) {
+    var age = d.data_age_sec;
+    if (age === null || age === undefined) { return '<span class="chip">新鲜度未知</span>'; }
+    var a = Number(age);
+    var txt = a < 60 ? (fmtInt(a) + ' 秒前') : (fmtInt(a / 60) + ' 分钟前');
+    if (d.stale === true || a > 600) {
+      return '<span class="chip bad">数据已过期 · ' + esc(txt) + '</span>';
+    }
+    return '<span class="chip ok">数据新鲜 · ' + esc(txt) + '</span>';
+  }
+
+  function paintOverview(d) {
+    var chs = d.channels || [], i, h = '', c, stt;
+    var stats = d.stats || {};
+    /* 后端 timer.describe() 的产物：total_sec = 已完成 + 本次已证实运行 */
+    var dur = (stats.duration && typeof stats.duration === 'object') ? stats.duration : {};
+    var runBy = {};
+    var rcarr = dur.running_channels || [];
+    for (i = 0; i < rcarr.length; i++) {
+      runBy[String(rcarr[i].channel)] = Number(rcarr[i].run_sec) || 0;
+    }
+    /* 记下本次渲染的基准，供 tickTimer 每秒递增 */
+    st.dur = {
+      total: Number(dur.total_sec) || 0,
+      running: Number(dur.running_sec) || 0,
+      counting: dur.counting === true,
+      fresh: dur.fresh === true,
+      completedKnown: dur.completed_known === true,
+      baseMs: Date.now(),
+      updated: st.dur && st.dur.updated ? st.dur.updated + 1 : 1
+    };
+
+    h += '<div class="card"><div class="sumrow">' +
+      '<div class="sumitem"><div class="lab">平均含水量</div><div class="val mono">' +
+      fmt1(d.soil_moisture_avg) + '<span class="muted small"> %</span></div></div>' +
+      '<div class="sumitem"><div class="lab">活跃泵</div><div class="val mono">' +
+      fmtInt(d.active_pumps) + '<span class="muted small"> 路</span></div></div>' +
+      '<div class="sumitem"><div class="lab">数据新鲜度</div><div class="val" style="font-size:14px;padding-top:4px">' +
+      freshChip(d) + '</div></div>' +
+      '<div class="sumitem"><div class="lab">告警</div><div class="val mono">' +
+      fmtInt(d.alert_badge) + '<span class="muted small"> 条</span></div></div>' +
+      '</div><div class="muted small" style="margin-top:10px">' +
+      '数据源 ' + esc(d.data_source || '未知') +
+      ' · 最近更新 ' + esc(fmtStamp(d.last_update)) +
+      ' · 服务时间 ' + esc(fmtStamp(d.server_time)) +
+      ' · 运行 ' + esc(fmtInt(d.uptime_seconds)) + ' 秒</div></div>';
+
+    h += '<div class="grid3" style="margin-top:14px">';
+    if (!chs.length) {
+      h += '<div class="card"><div class="empty">暂无通道数据。</div></div>';
+    }
+    for (i = 0; i < chs.length; i++) {
+      c = chs[i];
+      stt = chStatus(c);
+      h += '<div class="card chcard"><div class="chhead">' +
+        '<span class="chname">' + esc(fmtInt(c.channel)) + ' 号地块</span>' +
+        '<span class="chip" style="color:' + ST_COLOR[stt] + ';border-color:' +
+        ST_COLOR[stt] + '">' + esc(ST_CN[stt] || stt) + '</span></div>' +
+        '<div class="chbody">' +
+        ring(Number(c.soil_moisture), ST_COLOR[stt], fmt1(c.soil_moisture) + '%') +
+        '<div class="chvals">' +
+        '<div class="bignum mono" style="color:' + ST_COLOR[stt] + '">' +
+        fmt1(c.soil_moisture) + '<span class="unit">%</span></div>' +
+        '<div class="kv">水泵：' + (c.pump_status === true ?
+          '<b class="on">运行中</b>' : '<b class="off">已停止</b>') + '</div>' +
+        '<div class="kv">本次已运行：' +
+        (runBy[String(c.channel)] !== undefined && runBy[String(c.channel)] > 0
+          ? durHtml(runBy[String(c.channel)], 'chDur' + c.channel)
+          : '<span class="muted">—</span>') +
+        '</div>' +
+        '</div></div></div>';
+    }
+    h += '</div>';
+
+    h += '<div class="card" style="margin-top:14px">' +
+      '<div class="toolbar"><b>累计灌溉统计</b><span class="spacer"></span>' +
+      '<button class="btn ghost" data-act="refresh">刷新</button></div>' +
+      '<div class="sumrow">' +
+      '<div class="sumitem"><div class="lab">累计灌溉次数</div><div class="val mono">' +
+      fmtInt(stats.total_irrigations) + '</div></div>' +
+      '<div class="sumitem wide"><div class="lab">累计时长</div>' +
+      '<div class="val durwrap">' + durHtml(dur.total_sec, 'durTotal') +
+      (dur.counting ? '<span class="livetag" id="durLive">计时中</span>' : '') +
+      '</div>' +
+      (dur.reason ? '<div class="durwhy">' + esc(dur.reason) + '</div>' : '') +
+      '</div>' +
+      '<div class="sumitem"><div class="lab">累计用水量</div><div class="val mono">' +
+      fmt1(stats.water_usage_liters) + '<span class="muted small"> 升</span></div></div>' +
+      '<div class="sumitem"><div class="lab">节水率</div><div class="val mono">' +
+      fmt1(stats.water_saving_percent) + '<span class="muted small"> %</span></div></div>' +
+      '<div class="sumitem"><div class="lab">最近一次灌溉</div><div class="val mono" style="font-size:15px">' +
+      esc(fmtStamp(stats.last_event)) + '</div></div>' +
+      '</div></div>';
+
+    return h;
+  }
+
+  /* ---------------- 趋势 ---------------- */
+  function segHtml(act, cur, opts, attr) {
+    var h = '<div class="seg">', i;
+    for (i = 0; i < opts.length; i++) {
+      h += '<button class="btn' + (String(opts[i][0]) === String(cur) ? ' on' : '') +
+        '" data-act="' + act + '" ' + attr + '="' + opts[i][0] + '">' +
+        esc(opts[i][1]) + '</button>';
+    }
+    return h + '</div>';
+  }
+
+  function viewTrend() {
+    el('view').innerHTML = '<div class="card"><div class="toolbar">' +
+      segHtml('hours', st.hours, [['1', '1 小时'], ['6', '6 小时'], ['24', '24 小时'],
+        ['72', '72 小时'], ['168', '7 天']], 'data-hours') +
+      '<span class="spacer"></span>' +
+      '<button class="btn" data-act="csv">导出 CSV</button>' +
+      '<button class="btn ghost" data-act="refresh">刷新</button>' +
+      '</div><div id="trend-body"><div class="loading">正在加载历史数据…</div></div></div>';
+    loadTrend();
+  }
+
+  function loadTrend() {
+    api('GET', '/api/history?hours=' + encodeURIComponent(st.hours) + '&points=200',
+      null, function (d) {
+        var box = el('trend-body');
+        if (!box) { return; }
+        if (!d || d.status !== 'ok') {
+          box.innerHTML = '<div class="empty">' + esc((d && d.message) || '历史数据加载失败。') + '</div>';
+          return;
+        }
+        var raw = d.series || [], sr = [], i, s, pts;
+        for (i = 0; i < raw.length; i++) {
+          pts = raw[i].moisture || [];
+          if (!pts.length) { continue; }
+          sr.push({
+            label: raw[i].label || ((i + 1) + ' 号地块'),
+            color: CH_COLOR[i % 3],
+            points: pts
+          });
+        }
+        if (!sr.length) {
+          box.innerHTML = '<div class="empty">该时间范围内暂无历史数据。</div>';
+          return;
+        }
+        var chart = chartLine(sr, { ymin: 0, ymax: 100, suffix: '%', height: 320 });
+        var band = chartPump(raw);
+        var lg = [], lg2 = [];
+        for (i = 0; i < sr.length; i++) {
+          lg.push({ label: sr[i].label, color: sr[i].color });
+          lg2.push({ label: (i + 1) + ' 号泵', color: CH_COLOR[i % 3] });
+        }
+        s = chart + legend(lg);
+        if (band) { s += '<div class="muted small" style="margin:14px 0 2px">水泵运行状态（实心=运行中）</div>' + band + legend(lg2); }
+        s += '<div class="muted small" style="margin-top:10px">范围 ' + esc(fmtInt(d.hours)) +
+          ' 小时，每通道 ' + esc(fmtInt(d.points)) + ' 点。时间轴为本地时间，数值直接来自上游历史库。</div>';
+        box.innerHTML = s;
+      });
+  }
+
+  /* ---------------- 预测 ---------------- */
+  function viewPrediction() {
+    el('view').innerHTML = '<div class="card"><div class="toolbar">' +
+      segHtml('minutes', st.minutes, [['30', '未来 30 分钟'], ['60', '未来 60 分钟'],
+        ['120', '未来 120 分钟']], 'data-minutes') +
+      '<span class="spacer"></span>' +
+      '<button class="btn ghost" data-act="refresh">刷新</button>' +
+      '</div><div id="pred-body"><div class="loading">正在加载预测数据…</div></div></div>';
+    loadPrediction();
+  }
+
+  function loadPrediction() {
+    api('GET', '/api/prediction?minutes=' + encodeURIComponent(st.minutes), null,
+      function (d) {
+        var box = el('pred-body');
+        if (!box) { return; }
+        api('GET', '/api/history?hours=2&points=60', null, function (h) {
+          if (!el('pred-body')) { return; }
+          paintPrediction(d, h);
+        });
+      });
+  }
+
+  function paintPrediction(d, hist) {
+    var box = el('pred-body');
+    if (!box) { return; }
+    if (!d || d.status !== 'ok') {
+      box.innerHTML = '<div class="empty">' + esc((d && d.message) || '预测数据加载失败。') + '</div>';
+      return;
+    }
+    var meas = [], i;
+    if (hist && hist.status === 'ok' && hist.series && hist.series[0]) {
+      meas = hist.series[0].moisture || [];
+    }
+    var pred = d.predictions || [];
+    var h = '';
+
+    h += '<div class="muted small" style="margin-bottom:10px">算法：' +
+      esc(d.algorithm_info || '上游未提供算法说明') + ' · 预测时长 ' +
+      esc(fmtInt(d.horizon_minutes)) + ' 分钟</div>';
+
+    if (d.note) { h += '<div class="warnbar">' + esc(d.note) + '</div>'; }
+
+    var sr = [];
+    if (meas.length) { sr.push({ label: '实测（近 2 小时）', color: 'var(--c1)', points: meas }); }
+    if (pred.length) { sr.push({ label: '预测', color: 'var(--c3)', points: pred, dash: true }); }
+
+    var nowTs = Math.floor(Date.now() / 1000);
+    if (sr.length) {
+      h += chartLine(sr, { ymin: 0, ymax: 100, suffix: '%', height: 300, mark: nowTs });
+      h += legend(sr);
+    } else {
+      h += '<div class="empty">上游暂未返回可用的预测曲线。</div>';
+    }
+
+    var acc = d.accuracy_by_channel || {};
+    var keys = [];
+    for (var k in acc) {
+      if (Object.prototype.hasOwnProperty.call(acc, k)) { keys.push(k); }
+    }
+    if (keys.length) {
+      keys.sort();
+      h += '<div class="card" style="margin-top:14px"><b>各通道预测精度</b><div class="sumrow" style="margin-top:8px">';
+      var allZero = true;
+      for (i = 0; i < keys.length; i++) {
+        var v = Number(acc[keys[i]]);
+        if (!isFinite(v)) { v = 0; }
+        if (v > 0) { allZero = false; }
+        h += '<div class="sumitem"><div class="lab">' + esc(keys[i]) + ' 号地块</div>' +
+          '<div class="val mono">' + (v * 100).toFixed(1) + '<span class="muted small"> %</span></div></div>';
+      }
+      h += '</div>';
+      if (allZero) {
+        h += '<div class="muted small" style="margin-top:8px">当前精度为 0.0%，说明上游预测模型尚未收敛。此处按上游真实值展示，不做修饰。</div>';
+      }
+      h += '</div>';
+    }
+    box.innerHTML = h;
+  }
+
+  /* ---------------- 事件 ---------------- */
+  function viewEvents() {
+    el('view').innerHTML = '<div class="card"><div class="toolbar">' +
+      segHtml('days', st.days, [['1', '近 1 天'], ['7', '近 7 天'], ['30', '近 30 天']], 'data-days') +
+      '<span class="spacer"></span>' +
+      '<button class="btn ghost" data-act="refresh">刷新</button>' +
+      '</div><div id="ev-body"><div class="loading">正在加载灌溉事件…</div></div></div>';
+    loadEvents();
+  }
+
+  function evField(it, names, dflt) {
+    var i;
+    for (i = 0; i < names.length; i++) {
+      if (it[names[i]] !== undefined && it[names[i]] !== null) { return it[names[i]]; }
+    }
+    return dflt;
+  }
+
+  function loadEvents() {
+    api('GET', '/api/events?days=' + encodeURIComponent(st.days), null, function (d) {
+      var box = el('ev-body');
+      if (!box) { return; }
+      if (!d || d.status !== 'ok') {
+        box.innerHTML = '<div class="empty">' + esc((d && d.message) || '事件加载失败。') + '</div>';
+        return;
+      }
+      /* 契约 §4 只写了“灌溉事件列表”，未定字段名：
+         这里兼容 events / items / data 三种包裹，字段兼容 duration_sec 与 duration。 */
+      var list = d.events || d.items || d.data || [];
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">该时间范围内没有灌溉事件。</div>';
+        return;
+      }
+      var rows = [], i, it, day;
+      for (i = 0; i < list.length; i++) {
+        it = list[i];
+        rows.push({
+          ts: String(evField(it, ['start_time', 'ts', 'time'], '')),
+          channel: evField(it, ['channel', 'ch'], ''),
+          dur: Number(evField(it, ['duration_sec', 'duration'], 0)) || 0,
+          end: String(evField(it, ['end_time'], ''))
+        });
+      }
+      rows.sort(function (a, b) { return a.ts < b.ts ? 1 : (a.ts > b.ts ? -1 : 0); });
+
+      var byDay = {}, days = [];
+      for (i = 0; i < rows.length; i++) {
+        day = rows[i].ts.substr(0, 10);
+        if (!day) { continue; }
+        if (!byDay[day]) { byDay[day] = { n: 0, sec: 0 }; days.push(day); }
+        byDay[day].n += 1;
+        byDay[day].sec += rows[i].dur;
+      }
+      days.sort();
+      var cnt = [], mins = [];
+      for (i = 0; i < days.length; i++) {
+        cnt.push(byDay[days[i]].n);
+        mins.push(byDay[days[i]].sec / 60);
+      }
+
+      var h = '';
+      if (days.length) {
+        h += '<div class="muted small" style="margin-bottom:6px">按天汇总：次数（左轴）与总时长分钟（右轴）</div>';
+        h += chartBars(days, [
+          { label: '灌溉次数', color: 'var(--c1)', values: cnt },
+          { label: '总时长(分钟)', color: 'var(--c2)', values: mins }
+        ], { height: 260 });
+        h += legend([{ label: '灌溉次数', color: 'var(--c1)' }, { label: '总时长(分钟)', color: 'var(--c2)' }]);
+      }
+      h += '<div class="tbwrap" style="margin-top:14px"><table><thead><tr>' +
+        '<th>开始时间</th><th>结束时间</th><th>通道</th><th>时长</th></tr></thead><tbody>';
+      var lim = rows.length > 300 ? 300 : rows.length;
+      for (i = 0; i < lim; i++) {
+        h += '<tr><td class="num">' + esc(fmtStamp(rows[i].ts)) + '</td>' +
+          '<td class="num">' + esc(fmtStamp(rows[i].end)) + '</td>' +
+          '<td>' + esc(fmtInt(rows[i].channel)) + ' 号</td>' +
+          '<td class="num">' + esc(fmtDurSec(rows[i].dur)) + '</td></tr>';
+      }
+      h += '</tbody></table></div>';
+      if (rows.length > lim) {
+        h += '<div class="muted small" style="margin-top:8px">共 ' + esc(fmtInt(rows.length)) +
+          ' 条，仅显示最近 ' + lim + ' 条。</div>';
+      }
+      box.innerHTML = h;
+    });
+  }
+
+  /* ---------------- 天气 ---------------- */
+  function viewWeather() {
+    el('view').innerHTML = '<div class="card"><div class="toolbar"><b>天气预报</b>' +
+      '<span class="spacer"></span><button class="btn ghost" data-act="refresh">刷新</button>' +
+      '</div><div id="wx-body"><div class="loading">正在加载天气数据…</div></div></div>';
+    api('GET', '/api/overview', null, function (d) {
+      var box = el('wx-body');
+      if (!box) { return; }
+      if (!d || d.status !== 'ok') {
+        box.innerHTML = '<div class="empty">' + esc((d && d.message) || '天气数据加载失败。') + '</div>';
+        return;
+      }
+      var w = d.weather || {};
+      var h = '<div class="sumrow" style="margin-bottom:12px">' +
+        '<div class="sumitem"><div class="lab">城市</div><div class="val" style="font-size:16px">' +
+        esc(w.city || '未配置') + '</div></div>' +
+        '<div class="sumitem"><div class="lab">插件状态</div><div class="val" style="font-size:15px">' +
+        (w.enabled === false ? '<span class="chip">已停用</span>' : '<span class="chip ok">已启用</span>') +
+        '</div></div>' +
+        '<div class="sumitem"><div class="lab">更新时间</div><div class="val mono" style="font-size:15px">' +
+        esc(fmtStamp(w.updated_at)) + '</div></div></div>';
+      if (w.last_error) {
+        h += '<div class="warnbar">上游天气插件报告错误：' + esc(w.last_error) + '</div>';
+      }
+      var fc = w.forecast || [];
+      if (!fc.length) {
+        h += '<div class="empty">上游暂未返回预报数据。</div>';
+      } else {
+        h += '<div class="grid3">';
+        for (var i = 0; i < fc.length && i < 3; i++) {
+          var f = fc[i];
+          h += '<div class="card wcard"><div class="wdate">' + esc(f.date) + '</div>' +
+            '<div class="ww">' + esc(f.weather || '—') + '</div>' +
+            '<div class="wt mono">' + fmt1(f.temperature_c) +
+            '<span class="unit"> °C</span></div>' +
+            '<div class="kv">降雨概率 ' + fmt1(f.rain_probability_percent) + ' %</div></div>';
+        }
+        h += '</div>';
+      }
+      box.innerHTML = h;
+    });
+  }
+
+  /* ---------------- 告警 ---------------- */
+  function viewAlerts() {
+    el('view').innerHTML = '<div class="card"><div class="toolbar"><b>告警列表</b>' +
+      '<span class="spacer"></span><button class="btn ghost" data-act="refresh">刷新</button>' +
+      '</div><div id="al-body"><div class="loading">正在加载告警…</div></div></div>';
+    loadAlerts();
+  }
+
+  function loadAlerts() {
+    api('GET', '/api/alerts?limit=50', null, function (d) {
+      var box = el('al-body');
+      if (!box) { return; }
+      if (!d || d.status !== 'ok') {
+        box.innerHTML = '<div class="empty">' + esc((d && d.message) || '告警加载失败。') + '</div>';
+        return;
+      }
+      var list = d.alerts || d.items || [];
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">当前没有告警。</div>';
+        return;
+      }
+      var open = [], done = [], i, a;
+      for (i = 0; i < list.length; i++) {
+        a = list[i];
+        if (a.resolved_ts === null || a.resolved_ts === undefined || a.resolved_ts === '') {
+          open.push(a);
+        } else {
+          done.push(a);
+        }
+      }
+      function byTsDesc(x, y) {
+        var tx = String(x.ts || ''), ty = String(y.ts || '');
+        return tx < ty ? 1 : (tx > ty ? -1 : 0);
+      }
+      open.sort(byTsDesc);
+      done.sort(byTsDesc);
+      var all = open.concat(done);
+      var h = '<div class="muted small" style="margin-bottom:8px">未恢复 ' +
+        esc(fmtInt(open.length)) + ' 条，共 ' + esc(fmtInt(all.length)) + ' 条（未恢复置顶）</div>';
+      for (i = 0; i < all.length; i++) {
+        a = all[i];
+        var lv = a.level || 'info';
+        h += '<div class="alrow"><div class="lv ' + esc(lv) + '">' +
+          esc(LEVEL_CN[lv] || lv) + '</div><div class="albody">' +
+          '<div>' + esc(a.message || '') + '</div>' +
+          '<div class="altime">' + esc(fmtStamp(a.ts)) +
+          ' · 规则 ' + esc(RULE_CN[a.rule] || a.rule || '未知') +
+          ' · 通道 ' + esc(a.channel === null || a.channel === undefined ? '全部' : a.channel) +
+          ' · ' + (a.resolved_ts ? ('已于 ' + esc(fmtStamp(a.resolved_ts)) + ' 恢复') : '未恢复') +
+          '</div></div></div>';
+      }
+      box.innerHTML = h;
+    });
+  }
+
+  /* ---------------- 控制 ---------------- */
+  function viewControl() {
+    var h = '<div class="card"><div class="toolbar"><b>灌溉控制</b>' +
+      '<span class="spacer"></span><span class="chip main">' +
+      esc(ROLE_CN[window.localStorage.getItem('farm_role') || ''] || '') + '</span></div>' +
+      '<div class="grid2">' +
+      '<label class="fld"><span>目标通道</span><select id="ctl-ch">' +
+      '<option value="1">1 号地块</option><option value="2">2 号地块</option>' +
+      '<option value="3">3 号地块</option><option value="all">全部通道</option>' +
+      '</select></label>' +
+      '<label class="fld"><span>灌溉时长（分钟）</span>' +
+      '<input id="ctl-min" type="number" min="1" max="600" step="1" value="10"></label>' +
+      '</div>' +
+      '<div class="toolbar" style="margin-top:4px">' +
+      '<button class="btn primary" data-act="ctl-start">开始灌溉</button>' +
+      '<button class="btn danger" data-act="ctl-stop">停止灌溉</button>' +
+      '</div>' +
+      '<div class="muted small">指令会写审计日志；操作前需二次确认。控制结果以上游灌溉服务返回为准。</div>' +
+      '</div>' +
+      '<div class="card"><div class="toolbar"><b>最近一次采集的通道状态</b>' +
+      '<span class="spacer"></span><button class="btn ghost" data-act="refresh">刷新</button></div>' +
+      '<div id="ctl-body"><div class="loading">正在加载通道状态…</div></div></div>';
+    el('view').innerHTML = h;
+    api('GET', '/api/overview', null, function (d) {
+      var box = el('ctl-body');
+      if (!box) { return; }
+      if (!d || d.status !== 'ok') {
+        box.innerHTML = '<div class="empty">' + esc((d && d.message) || '通道状态加载失败。') + '</div>';
+        return;
+      }
+      var chs = d.channels || [], i, s = '<div class="tbwrap"><table><thead><tr>' +
+        '<th>通道</th><th>含水量</th><th>水泵</th><th>本次时长</th></tr></thead><tbody>';
+      for (i = 0; i < chs.length; i++) {
+        s += '<tr><td>' + esc(fmtInt(chs[i].channel)) + ' 号</td>' +
+          '<td class="num">' + fmt1(chs[i].soil_moisture) + ' %</td>' +
+          '<td>' + (chs[i].pump_status === true ? '<b class="on">运行中</b>' : '已停止') + '</td>' +
+          '<td class="num">' + esc(fmtDurSec(chs[i].irrigation_duration)) + '</td></tr>';
+      }
+      s += '</tbody></table></div>';
+      box.innerHTML = s;
+    });
+  }
+
+  function ctlValues() {
+    var chsel = el('ctl-ch'), minel = el('ctl-min');
+    var chv = chsel ? chsel.value : '1';
+    var channel = chv === 'all' ? 'all' : parseInt(chv, 10);
+    var minutes = minel ? parseInt(minel.value, 10) : 10;
+    if (!isFinite(minutes) || minutes < 1 || minutes > 600) {
+      toast('灌溉时长需为 1 - 600 分钟之间的整数', 'bad');
+      return null;
+    }
+    return { channel: channel, minutes: minutes };
+  }
+
+  function postControl(action) {
+    var v = ctlValues();
+    if (!v) { return; }
+    var body = {
+      action: action,
+      channel: v.channel,
+      duration_minutes: v.minutes
+    };
+    api('POST', '/api/control', body, function (d, code) {
+      if (!d) {
+        toast('控制请求失败（HTTP ' + code + '）', 'bad');
+        return;
+      }
+      if (d.status !== 'ok') {
+        toast(d.message || '控制请求被拒绝', 'bad');
+        return;
+      }
+      toast('指令已下发：' + (action === 'start' ? '开始' : '停止') + '灌溉', 'ok');
+      if (el('nav')) { el('nav').innerHTML = navHtml(); }
+      api('GET', '/api/overview', null, function (o) {
+        if (o && o.status === 'ok') { st.ov = o; }
+      });
+      if (st.view === 'control') { viewControl(); }
+    });
+  }
+
+  /* ---------------- 账号（admin） ---------------- */
+  function viewAccounts() {
+    var h = '<div class="card"><div class="toolbar"><b>新建用户</b></div>' +
+      '<div class="grid3">' +
+      '<label class="fld"><span>用户名（3-20 位字母/数字/下划线）</span>' +
+      '<input id="nu-name" type="text" autocomplete="off" spellcheck="false"></label>' +
+      '<label class="fld"><span>初始密码（至少 8 位）</span>' +
+      '<input id="nu-pass" type="password" autocomplete="new-password"></label>' +
+      '<label class="fld"><span>角色</span><select id="nu-role">' +
+      '<option value="viewer">查看者</option><option value="operator">操作员</option>' +
+      '<option value="admin">管理员</option></select></label>' +
+      '</div>' +
+      '<button class="btn primary" data-act="user-new">创建用户</button></div>' +
+      '<div class="card"><div class="toolbar"><b>用户列表</b>' +
+      '<span class="spacer"></span><button class="btn ghost" data-act="refresh">刷新</button></div>' +
+      '<div id="users-body"><div class="loading">正在加载用户…</div></div></div>';
+    el('view').innerHTML = h;
+    loadUsers();
+  }
+
+  function loadUsers() {
+    api('GET', '/api/users', null, function (d) {
+      var box = el('users-body');
+      if (!box) { return; }
+      if (!d || d.status !== 'ok') {
+        box.innerHTML = '<div class="empty">' + esc((d && d.message) || '用户列表加载失败。') + '</div>';
+        return;
+      }
+      var list = d.users || d.items || [];
+      if (!list.length) {
+        box.innerHTML = '<div class="empty">暂无用户。</div>';
+        return;
+      }
+      var h = '<div class="tbwrap"><table><thead><tr><th>用户名</th><th>角色</th>' +
+        '<th>创建时间</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+      var me = window.localStorage.getItem('farm_user') || '';
+      for (var i = 0; i < list.length; i++) {
+        var u = list[i];
+        var un = String(u.username || '');
+        var dis = u.disabled === true || u.disabled === 1;
+        h += '<tr><td class="mono">' + esc(un) +
+          (un === me ? ' <span class="chip main">本人</span>' : '') + '</td>' +
+          '<td><select data-act="user-role" data-user="' + esc(un) + '">' +
+          optHtml('viewer', '查看者', u.role) + optHtml('operator', '操作员', u.role) +
+          optHtml('admin', '管理员', u.role) + '</select></td>' +
+          '<td class="num">' + esc(fmtStamp(u.created)) + '</td>' +
+          '<td>' + (dis ? '<span class="chip">已停用</span>' : '<span class="chip ok">正常</span>') + '</td>' +
+          '<td><button class="btn ghost" data-act="user-toggle" data-user="' + esc(un) +
+          '" data-disabled="' + (dis ? '1' : '0') + '">' +
+          (dis ? '启用' : '停用') + '</button> ' +
+          '<button class="btn ghost" data-act="user-reset" data-user="' + esc(un) +
+          '">重置密码</button></td></tr>';
+      }
+      h += '</tbody></table></div><div class="muted small" style="margin-top:8px">' +
+        '接口不会返回密码哈希与盐值。</div>';
+      box.innerHTML = h;
+    });
+  }
+
+  function optHtml(val, label, cur) {
+    return '<option value="' + val + '"' + (String(cur) === val ? ' selected' : '') +
+      '>' + label + '</option>';
+  }
+
+  /* ---------------- 改密（页面内） ---------------- */
+  function viewChpw() {
+    el('view').innerHTML = '<div class="card narrow"><h3 style="margin-bottom:14px">修改密码</h3>' +
+      '<label class="fld"><span>原密码</span>' +
+      '<input id="pw-old" type="password" autocomplete="current-password"></label>' +
+      '<label class="fld"><span>新密码（至少 8 位）</span>' +
+      '<input id="pw-new" type="password" autocomplete="new-password"></label>' +
+      '<label class="fld"><span>确认新密码</span>' +
+      '<input id="pw-new2" type="password" autocomplete="new-password" data-enter="pwchange"></label>' +
+      '<div id="pw-err" class="err hidden"></div>' +
+      '<button class="btn primary block" data-act="pwchange">确认修改</button></div>';
+  }
+
+  /* ---------------- 登录门 / 主界面 ---------------- */
+  function showGate() {
+    stopPoll();
+    stopTick();
+    if (el('gate')) { el('gate').className = 'gate'; }
+    if (el('app')) { el('app').className = 'app hidden'; }
+    if (el('chpw')) { el('chpw').className = 'gate hidden'; }
+    var u = el('login-user');
+    if (u) { u.focus(); }
+  }
+
+  function showForcedPw() {
+    stopPoll();
+    stopTick();
+    if (el('gate')) { el('gate').className = 'gate hidden'; }
+    if (el('app')) { el('app').className = 'app hidden'; }
+    if (el('chpw')) { el('chpw').className = 'gate'; }
+    var p = el('fo-old');
+    if (p) { p.focus(); }
+  }
+
+  function enterApp() {
+    if (el('gate')) { el('gate').className = 'gate hidden'; }
+    if (el('chpw')) { el('chpw').className = 'gate hidden'; }
+    if (el('app')) { el('app').className = 'app'; }
+    var role = window.localStorage.getItem('farm_role') || '';
+    var user = window.localStorage.getItem('farm_user') || '';
+    if (el('whoami')) {
+      el('whoami').innerHTML = esc(user) + ' <span class="chip">' +
+        esc(ROLE_CN[role] || role || '未知角色') + '</span>';
+    }
+    st.view = '';
+    if (el('nav')) { el('nav').innerHTML = navHtml(); }
+    go('overview');
+    startPoll();
+    startTick();
+  }
+
+  function startPoll() {
+    stopPoll();
+    st.timer = window.setInterval(function () {
+      if (st.view === 'overview' && el('app') &&
+          el('app').className.indexOf('hidden') < 0) {
+        api('GET', '/api/overview', null, function (d, code) {
+          if (!d || d.status !== 'ok') {
+            /* 请求失败：不要继续假装在走，立刻冻结计时 */
+            if (st.dur) { st.dur.counting = false; st.dur.fresh = false;
+              st.dur.frozenReason = '与服务器断开，计时已暂停'; }
+            paintDurOnly();
+            return;
+          }
+          st.ov = d;
+          if (st.view !== 'overview' || !el('view')) { return; }
+          el('view').innerHTML = paintOverview(d);
+          if (el('nav')) { el('nav').innerHTML = navHtml(); }
+        });
+      }
+    }, 5000);
+  }
+
+  /* 每秒把「累计时长 / 本次已运行」往前推一格。
+     只在后端明确 counting=true 且读数新鲜时才走；后端一旦报不新鲜或
+     请求失败，立刻停表——绝不凭前端时钟自行外推。 */
+  function startTick() {
+    stopTick();
+    st.tick = window.setInterval(tickTimer, 1000);
+  }
+
+  function stopTick() {
+    if (st.tick) {
+      window.clearInterval(st.tick);
+      st.tick = 0;
+    }
+  }
+
+  function tickTimer() {
+    var d = st.dur;
+    if (!d || !d.counting || !d.fresh) { return; }
+    var add = Math.floor((Date.now() - d.baseMs) / 1000);
+    if (add <= 0) { return; }
+    /* 补间只允许往前推 INTERP_MAX 秒：再多就是拿前端时钟瞎猜了，
+       下一次轮询会带来后端的真值。 */
+    if (add > INTERP_MAX) { add = INTERP_MAX; }
+    var node = el('durTotal');
+    if (node) { node.innerHTML = durParts(d.total + add).map(partHtml).join(''); }
+    var rc = (st.ov && st.ov.stats && st.ov.stats.duration &&
+      st.ov.stats.duration.running_channels) || [];
+    var i, n2;
+    for (i = 0; i < rc.length; i++) {
+      n2 = el('chDur' + rc[i].channel);
+      if (n2) {
+        n2.innerHTML = durParts((Number(rc[i].run_sec) || 0) + add)
+          .map(partHtml).join('');
+      }
+    }
+  }
+
+  function partHtml(p) {
+    return '<span class="du"><b class="mono">' + fmtInt(p[0]) + '</b>' +
+      '<i>' + p[1] + '</i></span>';
+  }
+
+  /* 只重绘计时块（请求失败时冻结用） */
+  function paintDurOnly() {
+    var node = el('durTotal');
+    var d = st.dur;
+    if (!node || !d) { return; }
+    node.innerHTML = durParts(d.total).map(partHtml).join('');
+    var tag = el('durLive');
+    if (tag && tag.parentNode) { tag.parentNode.removeChild(tag); }
+    var box = node.parentNode;
+    if (box && d.frozenReason) {
+      var why = box.parentNode ? box.parentNode.querySelector('.durwhy') : null;
+      if (why) { why.textContent = d.frozenReason; }
+    }
+  }
+
+  function stopPoll() {
+    if (st.timer) {
+      window.clearInterval(st.timer);
+      st.timer = 0;
+    }
+  }
+
+  /* ---------------- 动作表 ---------------- */
+  var ACTIONS = {
+    'login': actLogin,
+    'logout': actLogout,
+    'forcedpw': actForcedPw,
+    'nav': actNav,
+    'refresh': actRefresh,
+    'hours': actHours,
+    'csv': actCsv,
+    'minutes': actMinutes,
+    'days': actDays,
+    'ctl-start': actCtlStart,
+    'ctl-stop': actCtlStop,
+    'confirm': actConfirm,
+    'cancel': actCancel,
+    'pwchange': actPwChange,
+    'user-new': actUserNew,
+    'user-role': actUserRole,
+    'user-toggle': actUserToggle,
+    'user-reset': actUserReset
+  };
+
+  function actLogin() {
+    var u = el('login-user'), p = el('login-pass');
+    var user = u ? u.value : '';
+    var pass = p ? p.value : '';
+    showErr('gate-err', '');
+    if (!user || !pass) {
+      showErr('gate-err', '请输入用户名和密码');
+      return;
+    }
+    api('POST', '/api/login', { username: user, password: pass }, function (d, code) {
+      if (!d) {
+        showErr('gate-err', '登录失败（HTTP ' + code + '），请稍后重试');
+        return;
+      }
+      if (d.status !== 'ok') {
+        showErr('gate-err', d.message || '用户名或密码不正确');
+        return;
+      }
+      window.localStorage.setItem('farm_token', d.token || '');
+      window.localStorage.setItem('farm_user', d.username || user);
+      window.localStorage.setItem('farm_role', d.role || 'viewer');
+      window.localStorage.removeItem('farm_must_change');
+      if (p) { p.value = ''; }
+      api('GET', '/api/me', null, function (me) {
+        if (!me || me.status !== 'ok') {
+          showGate();
+          return;
+        }
+        if (me.username) { window.localStorage.setItem('farm_user', me.username); }
+        if (me.role) { window.localStorage.setItem('farm_role', me.role); }
+        if (me.must_change === true) {
+          window.localStorage.setItem('farm_must_change', '1');
+          showForcedPw();
+          return;
+        }
+        window.localStorage.removeItem('farm_must_change');
+        enterApp();
+      });
+    });
+  }
+
+  function actLogout() {
+    api('POST', '/api/logout', {}, function () {
+      clearSession();
+      st.ov = null;
+      showGate();
+      toast('已退出登录', 'ok');
+    });
+  }
+
+  function actForcedPw() {
+    var o = el('fo-old'), n1 = el('fo-new'), n2 = el('fo-new2');
+    var oldv = o ? o.value : '';
+    var nv = n1 ? n1.value : '';
+    var nv2 = n2 ? n2.value : '';
+    showErr('fo-err', '');
+    if (!oldv || !nv) { showErr('fo-err', '请填写原密码和新密码'); return; }
+    if (nv.length < 8) { showErr('fo-err', '新密码至少 8 位'); return; }
+    if (nv !== nv2) { showErr('fo-err', '两次输入的新密码不一致'); return; }
+    api('POST', '/api/password', { old_password: oldv, new_password: nv }, function (d) {
+      if (!d || d.status !== 'ok') {
+        showErr('fo-err', (d && d.message) || '修改失败，请稍后重试');
+        return;
+      }
+      window.localStorage.removeItem('farm_must_change');
+      toast('密码已修改', 'ok');
+      enterApp();
+    });
+  }
+
+  function actNav(node) {
+    var v = node && node.getAttribute ? node.getAttribute('data-view') : '';
+    if (v) { go(v); }
+  }
+
+  function actRefresh() {
+    if (st.view) { go(st.view); }
+  }
+
+  function actHours(node) {
+    var v = node && node.getAttribute ? node.getAttribute('data-hours') : '';
+    st.hours = parseInt(v, 10) || 24;
+    viewTrend();
+  }
+
+  function actMinutes(node) {
+    var v = node && node.getAttribute ? node.getAttribute('data-minutes') : '';
+    st.minutes = parseInt(v, 10) || 30;
+    viewPrediction();
+  }
+
+  function actDays(node) {
+    var v = node && node.getAttribute ? node.getAttribute('data-days') : '';
+    st.days = parseInt(v, 10) || 7;
+    viewEvents();
+  }
+
+  function actCsv() {
+    var xhr = new XMLHttpRequest();
+    var url = '/api/export.csv?hours=' + encodeURIComponent(st.hours);
+    try { xhr.open('GET', url, true); } catch (e) { toast('导出失败', 'bad'); return; }
+    xhr.setRequestHeader('Authorization',
+      'Bearer ' + (window.localStorage.getItem('farm_token') || ''));
+    xhr.responseType = 'blob';
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) { return; }
+      if (xhr.status === 401) { handle401(); return; }
+      if (xhr.status !== 200) { toast('导出失败（HTTP ' + xhr.status + '）', 'bad'); return; }
+      var blob = xhr.response;
+      if (!blob) { toast('导出失败', 'bad'); return; }
+      var a = document.createElement('a');
+      var o = window.URL.createObjectURL(blob);
+      a.href = o;
+      a.download = 'farm_history_' + st.hours + 'h.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(function () { window.URL.revokeObjectURL(o); }, 5000);
+      toast('CSV 已开始下载', 'ok');
+    };
+    xhr.send(null);
+  }
+
+  function actCtlStart() {
+    var v = ctlValues();
+    if (!v) { return; }
+    var who = v.channel === 'all' ? '全部通道' : (v.channel + ' 号地块');
+    openConfirm('确认开始灌溉',
+      '将对 ' + who + ' 开始灌溉，时长 ' + v.minutes + ' 分钟。\n该指令会下发到灌溉服务并写入审计日志，确定继续吗？',
+      function () { postControl('start'); });
+  }
+
+  function actCtlStop() {
+    var v = ctlValues();
+    if (!v) { return; }
+    var who = v.channel === 'all' ? '全部通道' : (v.channel + ' 号地块');
+    openConfirm('确认停止灌溉',
+      '将停止 ' + who + ' 的水泵。\n该指令会下发到灌溉服务并写入审计日志，确定继续吗？',
+      function () { postControl('stop'); });
+  }
+
+  function actConfirm() {
+    var fn = st.modalFn;
+    var inp = el('modal-input');
+    var val = inp ? inp.value : null;
+    closeModal();
+    if (fn) { fn(val); }
+  }
+
+  function actCancel() {
+    closeModal();
+  }
+
+  function actPwChange() {
+    var o = el('pw-old'), n1 = el('pw-new'), n2 = el('pw-new2');
+    var oldv = o ? o.value : '';
+    var nv = n1 ? n1.value : '';
+    var nv2 = n2 ? n2.value : '';
+    showErr('pw-err', '');
+    if (!oldv || !nv) { showErr('pw-err', '请填写原密码和新密码'); return; }
+    if (nv.length < 8) { showErr('pw-err', '新密码至少 8 位'); return; }
+    if (nv !== nv2) { showErr('pw-err', '两次输入的新密码不一致'); return; }
+    api('POST', '/api/password', { old_password: oldv, new_password: nv }, function (d) {
+      if (!d || d.status !== 'ok') {
+        showErr('pw-err', (d && d.message) || '修改失败，请稍后重试');
+        return;
+      }
+      toast('密码已修改', 'ok');
+      if (o) { o.value = ''; }
+      if (n1) { n1.value = ''; }
+      if (n2) { n2.value = ''; }
+    });
+  }
+
+  function actUserNew() {
+    var n = el('nu-name'), p = el('nu-pass'), r = el('nu-role');
+    var name = n ? n.value : '';
+    var pass = p ? p.value : '';
+    var role = r ? r.value : 'viewer';
+    if (!name || !pass) { toast('请填写用户名和初始密码', 'bad'); return; }
+    if (pass.length < 8) { toast('初始密码至少 8 位', 'bad'); return; }
+    api('POST', '/api/users', { username: name, password: pass, role: role }, function (d) {
+      if (!d || d.status !== 'ok') { toast((d && d.message) || '创建失败', 'bad'); return; }
+      toast('用户已创建', 'ok');
+      if (n) { n.value = ''; }
+      if (p) { p.value = ''; }
+      loadUsers();
+    });
+  }
+
+  function actUserRole(node) {
+    var un = node && node.getAttribute ? node.getAttribute('data-user') : '';
+    var role = node ? node.value : '';
+    if (!un || !role) { return; }
+    api('PATCH', '/api/users/' + encodeURIComponent(un), { role: role }, function (d) {
+      if (!d || d.status !== 'ok') { toast((d && d.message) || '修改角色失败', 'bad'); return; }
+      toast('角色已更新：' + un + ' → ' + (ROLE_CN[role] || role), 'ok');
+      loadUsers();
+    });
+  }
+
+  function actUserToggle(node) {
+    var un = node && node.getAttribute ? node.getAttribute('data-user') : '';
+    var dis = node && node.getAttribute ? node.getAttribute('data-disabled') : '0';
+    if (!un) { return; }
+    var next = dis === '1' ? false : true;
+    api('PATCH', '/api/users/' + encodeURIComponent(un), { disabled: next }, function (d) {
+      if (!d || d.status !== 'ok') { toast((d && d.message) || '操作失败', 'bad'); return; }
+      toast(next ? ('已停用 ' + un) : ('已启用 ' + un), 'ok');
+      loadUsers();
+    });
+  }
+
+  function actUserReset(node) {
+    var un = node && node.getAttribute ? node.getAttribute('data-user') : '';
+    if (!un) { return; }
+    openPrompt('重置密码 · ' + un, '新密码（至少 8 位）', function (val) {
+      if (!val) { return; }
+      if (val.length < 8) { toast('新密码至少 8 位', 'bad'); return; }
+      api('PATCH', '/api/users/' + encodeURIComponent(un), { password: val }, function (d) {
+        if (!d || d.status !== 'ok') { toast((d && d.message) || '重置密码失败', 'bad'); return; }
+        toast('已重置 ' + un + ' 的密码', 'ok');
+      });
+    });
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  function findAct(node) {
+    var t = node;
+    while (t && t !== document) {
+      if (t.getAttribute && t.getAttribute('data-act')) { return t; }
+      t = t.parentNode;
+    }
+    return null;
+  }
+
+  document.addEventListener('click', function (e) {
+    var node = findAct(e.target);
+    if (!node) { return; }
+    var a = node.getAttribute('data-act');
+    if (!ACTIONS[a]) { return; }
+    if (node.tagName === 'SELECT') { return; }
+    e.preventDefault();
+    ACTIONS[a](node);
+  });
+
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || !t.getAttribute) { return; }
+    var a = t.getAttribute('data-act');
+    if (a === 'user-role' && ACTIONS[a]) { ACTIONS[a](t); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.keyCode !== 13) { return; }
+    var t = e.target;
+    if (!t || !t.getAttribute) { return; }
+    if (el('modal') && el('modal').className.indexOf('hidden') < 0) {
+      actConfirm();
+      return;
+    }
+    var a = t.getAttribute('data-enter');
+    if (a && ACTIONS[a]) { ACTIONS[a](t); }
+  });
+
+  VIEWS = {
+    overview: viewOverview,
+    trend: viewTrend,
+    prediction: viewPrediction,
+    events: viewEvents,
+    weather: viewWeather,
+    alerts: viewAlerts,
+    control: viewControl,
+    accounts: viewAccounts,
+    chpw: viewChpw
+  };
+
+  /* ---------------- 启动 ---------------- */
+  function boot() {
+    var tk = window.localStorage.getItem('farm_token') || '';
+    st.user = window.localStorage.getItem('farm_user') || '';
+    st.role = window.localStorage.getItem('farm_role') || '';
+    if (!tk) { showGate(); return; }
+    api('GET', '/api/me', null, function (d) {
+      if (!d || d.status !== 'ok') { showGate(); return; }
+      if (d.username) { window.localStorage.setItem('farm_user', d.username); }
+      if (d.role) { window.localStorage.setItem('farm_role', d.role); }
+      if (d.must_change === true) {
+        window.localStorage.setItem('farm_must_change', '1');
+        showForcedPw();
+        return;
+      }
+      window.localStorage.removeItem('farm_must_change');
+      enterApp();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+}());
+</script>
+</body>
+</html>

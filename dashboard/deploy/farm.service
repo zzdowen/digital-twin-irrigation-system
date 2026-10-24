@@ -1,0 +1,72 @@
+# FARM 灌溉监控看板 systemd 单元文件
+#
+# 安装（deploy/install.sh 会自动做，一般不需要手工操作）：
+#   sudo cp deploy/farm.service /etc/systemd/system/farm.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now farm.service
+#
+# 本文件里的 __PORT__ / __WORKERS__ 是占位符，install.sh 用 sed 换成实际值。
+#
+# ⚠️ workers 必须是 1（重要，改之前先读完）
+#   本项目后端有两处「进程内状态」：
+#     1) collector.py 的采集线程（每 FARM_SAMPLE_SEC 秒写一次 samples 表）
+#     2) /api/overview 的服务端缓存（≤3 秒）
+#   开多个 uvicorn worker 会变成 N 个独立进程：N 个采集线程同时写库（互相撞锁）、
+#   缓存各存各的、登录失败计数看起来会「跳变」。所以固定 --workers 1。
+#   4 核 4G 跑一个看板 + 60 秒一次采集完全够用。
+#
+# ⚠️ ProtectHome 为什么是 read-only 而不是 true
+#   本服务要**只读**打开上游历史库 /home/ubuntu/irrigation_history.db（/api/events 用）。
+#   ProtectHome=true 会把 /home 变成完全不可见，SQLite 直接报 unable to open database。
+#   ProtectHome=read-only 允许读、禁止写，正好符合「只读上游、绝不改它」的约定。
+
+[Unit]
+Description=FARM 灌溉监控看板 (FastAPI/uvicorn, 0.0.0.0:8000)
+Documentation=file:/opt/farm/docs/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+# 反复崩溃时不要无限重启刷日志：60 秒内超过 5 次就停手，便于人工介入
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=farm
+Group=farm
+WorkingDirectory=/opt/farm/backend
+
+# 环境变量：上游地址、数据目录、上游历史库路径、token 有效期、采样间隔、
+# 初始管理员密码（install.sh 生成，权限 640 owner farm）
+EnvironmentFile=-/opt/farm/.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# 服务没有登录 shell，HOME 指到可写的数据目录，避免任何写 home 的尝试失败
+Environment=HOME=/opt/farm/data
+
+# 监听 0.0.0.0:8000（云厂商轻量：公网 IP + 自定义端口，无需域名/备案）
+ExecStart=/opt/farm/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port __PORT__ --workers __WORKERS__ --proxy-headers --timeout-keep-alive 65
+
+# 崩溃自动拉起；systemctl restart 时不丢正在返回的响应
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+# —— 安全加固 ——
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+# read-only：允许读 /home/ubuntu/irrigation_history.db，禁止写
+ProtectHome=read-only
+# 本项目唯一需要写的地方：自己的 SQLite / 采样 / 导出文件
+ReadWritePaths=/opt/farm/data
+
+# 日志进 journald：journalctl -u farm.service -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=farm
+
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
