@@ -1,4 +1,4 @@
-﻿# 🌱 数字孪生灌溉系统
+# 🌱 数字孪生灌溉系统
 
 **2026年辽宁省工创大赛 · 工程场景数字化赛项参赛项目**
 
@@ -91,7 +91,7 @@
 digital-twin-irrigation-system/
 ├── backend/                       # Python 后端
 │   ├── irrigation_server.py       # 数据服务器 v3.1.0（单文件全模块）
-│   ├── moisture_simulator.py      # 3 路 MQTT 湿度模拟发送器
+│   ├── moisture_simulator.py      # 3 路 MQTT 湿度模拟发送器（物理水平衡模型 v2）
 │   ├── requirements.txt
 │   └── README.md
 ├── deploy/systemd/                # 云服务器 systemd 服务与覆盖配置
@@ -134,6 +134,20 @@ python irrigation_server.py        # 默认 3 路模拟数据 + auto 数据源
 ```
 
 天气服务无需 API Key：后端启动后立即请求 Open-Meteo，并按 `WEATHER_REFRESH_SEC`（默认 `7200` 秒）定时刷新。经纬度可通过 `LATITUDE`、`LONGITUDE` 配置。
+
+### 1.1 启动湿度模拟器（无实物传感器时）
+
+没有接 ESP32 实物时，用模拟器按物理模型产生三路土壤墒情数据：
+
+```bash
+cd backend
+python moisture_simulator.py              # 连 MQTT 持续上报
+python moisture_simulator.py --selftest   # 先离线跑 7 天看看曲线是否合理（不连 MQTT）
+```
+
+模拟器按农田水量平衡（灌溉 + 降雨 − 蒸散 − 深层渗漏）推进，三块地按不同土壤质地
+各自演化；同时读取本机 `/api/weather` 的真实天气预报驱动降雨与蒸散。详见
+[`backend/README.md`](backend/README.md#mqtt-湿度模拟器)。
 
 ### 2. 测试 API
 

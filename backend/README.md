@@ -63,7 +63,42 @@ export TRADITIONAL_MINUTES_PER_DAY=30  # 传统灌溉基线（分钟/天/路，�
 
 ## MQTT 湿度模拟器
 
-运行 `python moisture_simulator.py` 可模拟 3 路土壤湿度数据并发布到 MQTT。默认主题为 `irrigation/sensor/+/moisture`，参数可通过环境变量配置；`deploy/systemd/` 提供了开机自启动服务模板。
+运行 `python moisture_simulator.py` 可模拟 3 路土壤湿度数据并发布到 MQTT，主题为
+`${MQTT_BASE_TOPIC}/sensors`（默认 `farm/device01`，`deploy/systemd/` 的 drop-in 里
+改成 `farm/simulator01`），参数均可通过环境变量配置。
+
+### v2：物理水平衡模型
+
+模拟器已从「随机增减 + 上限写死 80%」升级为按真实农田的**水量平衡**推进：
+
+```
+每分钟含水量变化 = 灌溉 + 降雨 − 作物蒸散(ET) − 深层渗漏
+```
+
+| 环节 | 怎么算的 |
+|------|----------|
+| 蒸散 ET | 由太阳高度角驱动（赤纬 + 时角，用 `LATITUDE`/`LONGITUDE` 算），夜里为 0、正午最强；再按气温和云量修正 |
+| 深层渗漏 | 超过田间持水量（FC）的部分按土壤质地的时间常数下渗：沙土分钟级、黏土小时级 |
+| 灌溉 | 泵开时按 `rise_per_min` 抬升；到 `refill_target` 自动停；连抽超过 `MAX_PUMP_MIN` 强制停（防淹） |
+| 降雨 | 读上游 `/api/weather` 的当日降雨概率按天抽签生成阵雨，雨天同时压低蒸散；取不到用季节气候值兜底 |
+
+三块地按土壤质地各配一套参数（沙壤土 / 壤土 / 黏壤土），触发点 `mad = wp + 0.5×(fc−wp)`
+和补充目标 `refill_target = fc + 3` 都各不相同，所以三条曲线不会重合成一条线。
+
+**14 天离线自检实测**：沙壤土 38.4~44.0%、壤土 39.8~60.3%、黏壤土 45.0~67.3%；
+昼夜节律正确（00:00~07:00 平坦、08:00~17:00 持续下降）。
+
+```bash
+python moisture_simulator.py --selftest   # 离线跑 7 天，打印轨迹与结论（不连 MQTT）
+```
+
+> **与旧版的不兼容点**：旧版用 `AUTO_THRESHOLD`（30%）统一触发、`AUTO_TARGET`（62%）
+> 统一停泵；新版改成按土壤质地各自计算，这两个环境变量不再生效（若仍设置，启动时
+> 会打印提示）。MQTT 主题与 payload 格式完全不变。
+
+可调环境变量：`LATITUDE` / `LONGITUDE` / `TZ_OFFSET_HOURS`（决定日照曲线）、
+`ET0_PEAK_MM_PER_HOUR`（正午蒸散强度，默认 0.62 mm/h）、`MAX_PUMP_MIN`（默认 90）、
+`WEATHER_URL`（默认 `http://127.0.0.1:5000/api/weather`）、`WEATHER_POLL_SEC`（默认 600）。
 
 ## 部署状态
 
